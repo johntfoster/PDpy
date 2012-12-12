@@ -3,14 +3,8 @@
 
 import numpy as np
 import scipy.spatial
-import scipy.linalg
 
-from mpi4py import MPI
-
-#instantiate MPI communicator
-comm = MPI.COMM_WORLD
-size = comm.size
-rank = comm.rank
+import Gnuplot as gp
 
 ### Helper Functions ###
 
@@ -46,7 +40,6 @@ def compute_internal_force(pos_x, pos_y, disp_x, disp_y, families,
     #Compute deformation magnitude state
     def_mag_state = np.array(def_state_x * def_state_x +
                              def_state_y * def_state_y) ** 0.5
-    print def_mag_state[0]
 
     #Compute deformation unit state
     def_unit_state_x = def_state_x / def_mag_state
@@ -75,107 +68,17 @@ def compute_internal_force(pos_x, pos_y, disp_x, disp_y, families,
 
 
 # MPI communicator function
-def exchange_grid_variable(my_x, rank, size, horizon, grid_size):
-    """Function that performs MPI communication across grid"""
-
-    step = horizon * grid_size
-
-    if rank == 0:
-        comm.send(my_x[-step:], dest=1)
-
-    if 0 < rank < (size - 1):
-        rows_above_x = comm.recv(source=(rank - 1))
-        comm.send(my_x[-step:], dest=(rank + 1))
-
-    if rank == (size - 1):
-        rows_above_x = comm.recv(source=(rank - 1))
-        comm.send(my_x[:step], dest=(rank - 1))
-        #Setup local grid
-        return np.r_[rows_above_x, my_x].flatten()
-
-    if 0 < rank < (size - 1):
-        comm.send(my_x[:step], dest=(rank - 1))
-        rows_below_x = comm.recv(source=(rank + 1))
-        #Setup local grid
-        return np.r_[rows_above_x, my_x, rows_below_x].flatten()
-
-    if rank == 0:
-        rows_below_x = comm.recv(source=1)
-        #Setup local grid
-        return np.r_[my_x, rows_below_x].flatten()
-
-
-# Strip off ghost rows before MPI commuincation
-def strip_ghost_rows(my_x, rank, size, horizon, grid_size):
-    """Function that strips off the overlapped ghost rows, intended to be used
-       before exchange_grid_varibles()""" 
-
-    step = horizon * grid_size
-
-    if rank == 0:
-        return my_x[:-step]
-
-    if 0 < rank < (size - 1):
-        return my_x[step:-step]
-
-    if rank == (size - 1):
-        return my_x[step:]
 
 ### Main Program ####
-GRIDSIZE = 20
-HORIZON = 2.
+GRIDSIZE = 30
+HORIZON = 3.
 
-num_nodes = GRIDSIZE * GRIDSIZE
+#Set up the grid
+grid = np.mgrid[0:GRIDSIZE:1., 0:GRIDSIZE:1.]
 
-#Grid buffer variables
-x_sendbuf = []
-y_sendbuf = []
-disp_x_sendbuf = []
-disp_y_sendbuf = []
+my_x = grid[0].flatten()
+my_y = grid[1].flatten()        
 
-if rank == 0:
-    print("pop: The Peridynamic OPtimization tool\n")
-
-    #Set up the grid
-    grid = np.mgrid[0:GRIDSIZE:1., 0:GRIDSIZE:1.]
-
-    #Partition grid
-    chunks = GRIDSIZE / size
-
-    x_partitioned = [grid[0][i * chunks:(i + 1) * chunks] for i in range(size)]
-    y_partitioned = [grid[1][i * chunks:(i + 1) * chunks] for i in range(size)]
-
-    disp_x = np.zeros_like(x_partitioned)
-    disp_y = np.zeros_like(y_partitioned)
-    
-    x_sendbuf = x_partitioned
-    y_sendbuf = y_partitioned
-    disp_x_sendbuf = disp_x
-    disp_y_sendbuf = disp_y
-else:
-    x_sendbuf = None
-    y_sendbuf = None
-    disp_x_sendbuf = None
-    disp_y_sendbuf = None
-
-#Scatter initial positions to all ranks
-my_x = comm.scatter(x_sendbuf, root=0)
-my_y = comm.scatter(y_sendbuf, root=0)
-my_disp_x = comm.scatter(disp_x_sendbuf, root=0)
-my_disp_y = comm.scatter(disp_y_sendbuf, root=0)
-
-#Flatten the data before lots of communication happens
-my_x = my_x.flatten()
-my_y = my_x.flatten() 
-my_disp_x = my_disp_x.flatten()
-my_disp_y = my_disp_y.flatten()
-
-# Communicate ghost rows and setup local grids
-my_x = exchange_grid_variable(my_x, rank, size, HORIZON, GRIDSIZE)
-my_y = exchange_grid_variable(my_y, rank, size, HORIZON, GRIDSIZE)
-my_disp_x = exchange_grid_variable(my_disp_x, rank, size, HORIZON, GRIDSIZE)
-my_disp_y = exchange_grid_variable(my_disp_y, rank, size, HORIZON, GRIDSIZE)
-        
 #Create the x,y tuples required by scipy.spatial.KDTree
 my_nodes = np.array(zip(my_x, my_y), dtype=np.double)
 
@@ -221,29 +124,29 @@ BULK_MODULUS = 70.e9
 RHO = 7800
 
 #Temparary arrays
+my_disp_x = np.zeros_like(my_x)
+my_disp_y = np.zeros_like(my_y)
 my_velocity_x = np.zeros_like(my_disp_x)
 my_velocity_y = np.zeros_like(my_disp_y)
 my_accel_x = np.zeros_like(my_disp_x)
 my_accel_y = np.zeros_like(my_disp_y)
 
 #Time stepping loop
-for iteration in range(1,2):
+for iteration in range(1,500):
     
     #Print a information line
-    if rank == 0:
-        print "Iter = " + str(iteration) + " , time = " + str(iteration*TIME_STEP)
+    print "Iter = " + str(iteration) + " , time = " + str(iteration*TIME_STEP)
 
     #Enforce boundary conditions
-    if rank == 0:
-        my_disp_x[:HORIZON*GRIDSIZE] = 0.0
-        my_disp_y[:HORIZON*GRIDSIZE] = TIME_STEP*VELOCITY 
-        my_velocity_x[:HORIZON*GRIDSIZE] = 0.0
-        my_velocity_y[:HORIZON*GRIDSIZE] = VELOCITY 
-    if rank == (size - 1):
-        my_disp_x[-HORIZON*GRIDSIZE:] = 0.0
-        my_disp_y[-HORIZON*GRIDSIZE:] = -TIME_STEP*VELOCITY 
-        my_velocity_x[-HORIZON*GRIDSIZE:] = 0.0
-        my_velocity_y[-HORIZON*GRIDSIZE:] = -VELOCITY 
+    my_disp_x[:HORIZON*GRIDSIZE] = 0.0
+    my_disp_y[:HORIZON*GRIDSIZE] = TIME_STEP*VELOCITY 
+    my_velocity_x[:HORIZON*GRIDSIZE] = 0.0
+    my_velocity_y[:HORIZON*GRIDSIZE] = VELOCITY 
+    #
+    my_disp_x[-HORIZON*GRIDSIZE:] = 0.0
+    my_disp_y[-HORIZON*GRIDSIZE:] = -TIME_STEP*VELOCITY 
+    my_velocity_x[-HORIZON*GRIDSIZE:] = 0.0
+    my_velocity_y[-HORIZON*GRIDSIZE:] = -VELOCITY 
         
     #Compute the internal force
     my_force_x, my_force_y = compute_internal_force(my_x, my_y, my_disp_x,
@@ -268,17 +171,10 @@ for iteration in range(1,2):
     my_disp_x += my_velocity_x*TIME_STEP + 0.5*my_accel_x*TIME_STEP*TIME_STEP
     my_disp_y += my_velocity_y*TIME_STEP + 0.5*my_accel_y*TIME_STEP*TIME_STEP
 
-    #Reshape for MPI communication
-    #my_disp_x.reshape((-1, GRIDSIZE))
-    #my_disp_y.reshape((-1, GRIDSIZE))
-
-    if iteration == 9:
-        print my_disp_x
-
-    #Strip off the ghosted rows
-    #my_disp_x = strip_ghost_rows(my_disp_x,rank,size,HORIZON)
-    #my_disp_y = strip_ghost_rows(my_disp_y,rank,size,HORIZON)
-
-    #Update new positions across processors
-    #my_disp_x = exchange_grid_variable(my_disp_x,rank,size,HORIZON)
-    #my_disp_y = exchange_grid_variable(my_disp_y,rank,size,HORIZON)
+my_disp_y.shape = (GRIDSIZE,GRIDSIZE)
+g = gp.Gnuplot(persist=1)
+g('set pm3d')
+g('set view map')
+g('unset surface')
+g('set size square')
+g.splot(gp.GridData(my_disp_y,binary=0,inline=0))
