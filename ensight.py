@@ -3,9 +3,9 @@ import os
 
 class Ensight:
     
-    def __init__(self, filename, X, Y, vector_var_names=None,scalar_var_names=None):
+    def __init__(self, filename='output', vector_var_names=None,scalar_var_names=None):
 
-        directory = './ensight_files'
+        directory = './ensight_files/'
         if not os.path.exists(directory):
             os.makedirs(directory)
 
@@ -18,7 +18,6 @@ class Ensight:
         self.times = [0.0]
 
         self.__init_case_file()
-        self.write_geometry_file_timestep(X,Y)
        
         if self.__vv_names != None:
             self.__vector_var_files = [ open(directory+afilename+'.var','w') for afilename in self.__vv_names ]
@@ -35,16 +34,16 @@ class Ensight:
         print >> self.__case_file, 'FORMAT'
         print >> self.__case_file, 'type: ensight gold'
         print >> self.__case_file, 'GEOMETRY'
-        print >> self.__case_file, 'model: ' + self.__fname + '.geo'
+        print >> self.__case_file, 'model: 1 1 ' + self.__fname + '.geo'
         print >> self.__case_file, 'VARIABLE'
 
         if self.__vv_names != None:
             for item in self.__vv_names:
-                print >> self.__case_file, 'vector per node: ' + item + ' ' + item +'.var'
+                print >> self.__case_file, 'vector per node: 1 1 ' + item + ' ' + item +'.var'
 
         if self.__sv_names != None:
             for item in self.__vv_names:
-                print >> self.__case_file, 'scalar per node: ' + item + ' ' + item +'.var'
+                print >> self.__case_file, 'scalar per node: 1 1 ' + item + ' ' + item +'.var'
 
         return
 
@@ -134,8 +133,12 @@ class Ensight:
         print >> self.__case_file, 'time values: '
         for item in self.times:
             print >> self.__case_file, item
+        print >> self.__case_file, 'FILE'
+        print >> self.__case_file, 'file set: 1'
+        print >> self.__case_file, 'number of steps: ' + str(len(self.times))
 
         return
+
 
     def finalize(self):
         
