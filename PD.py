@@ -21,14 +21,10 @@ def scalar_force_state_fun(exten_state, weighted_volume, bulk_modulus):
 
 
 # Internal force calculation
-def compute_internal_force(pos_x, pos_y, disp_x, disp_y, families,
-                           ref_mag_state, weighted_volume, volumes,
-                           num_nodes, bulk_modulus):
+def compute_internal_force(force_x, force_y, pos_x, pos_y, disp_x, disp_y, 
+        families, ref_mag_state, weighted_volume, volumes, num_nodes, 
+        bulk_modulus):
     """ Computes the peridynamic internal force due to deformations."""
-
-    #Allocate space for internal force
-    force_x = np.zeros_like(disp_x)
-    force_y = np.zeros_like(disp_y)
 
     #Compute the deformed positions of the nodes
     def_x = pos_x + disp_x
@@ -68,8 +64,54 @@ def compute_internal_force(pos_x, pos_y, disp_x, disp_y, families,
         force_x[families[i]] -= force_state_x[i] * volumes[i]
         force_y[families[i]] -= force_state_y[i] * volumes[i]
 
-    return [force_x, force_y]
+    return 
 
+
+def compute_stable_time_step(pos_x, pos_y, disp_x, disp_y, families, 
+                            ref_mag_state, weighted_volume, volumes, 
+                            num_nodes, bulk_modulus,rho):
+
+    h = 1.e-50
+    j = np.complex(0,h)
+
+    purturb_disp_x = np.empty(num_nodes,dtype=np.complex)
+    purturb_disp_x[:] = disp_x
+    purturb_disp_y = np.empty(num_nodes,dtype=np.complex)
+    purturb_disp_y[:] = disp_x
+
+    stiff_x = np.zeros(num_nodes,dtype=np.double)
+    stiff_y = np.zeros(num_nodes,dtype=np.double)
+
+    max_eigenvalue_estimate = 1.e-15
+
+    for i in range(2*num_nodes):
+
+        force_x = np.zeros(num_nodes,dtype=np.complex)
+        force_y = np.zeros(num_nodes,dtype=np.complex)
+
+        if i % 2 == 0:
+            purturb_disp_x[i / 2] += j
+            compute_internal_force(force_x, force_y, pos_x, pos_y, 
+                    purturb_disp_x, disp_y, families, ref_mag_state, 
+                    weighted_volume, volumes, num_nodes, bulk_modulus)
+            purturb_disp_x[i / 2] = disp_x[i / 2]
+        else:
+            purturb_disp_y[i / 2] += j
+            compute_internal_force(force_x, force_y, pos_x, pos_y, 
+                    disp_x, purturb_disp_y, families, ref_mag_state, 
+                    weighted_volume, volumes, num_nodes, bulk_modulus)
+            purturb_disp_y[i / 2] = disp_y[i / 2]
+
+        stiff_x += np.abs(force_x.imag/h/rho)
+        stiff_y += np.abs(force_y.imag/h/rho)
+
+        max_x_arr = np.amax(stiff_x)
+        max_y_arr = np.amax(stiff_y)
+        
+        max_eigenvalue_estimate =  np.amax([max_x_arr,max_y_arr,max_eigenvalue_estimate])
+
+    return 0.8*2./max_eigenvalue_estimate
+    
 
 # MPI communicator function
 
@@ -137,38 +179,45 @@ my_accel_y = np.zeros_like(my_disp_y)
 
 
 #Initialize output files
-outfile = Ensight('output', ['displacement'])
-outfile.write_geometry_file_timestep(my_x, my_y)
-outfile.write_vector_variable_timestep('displacement', 
-                                       [my_disp_x,my_disp_y], 0.0)
+vector_variables = ['displacement']
+outfile = Ensight('output', vector_variables)
+#outfile.write_geometry_file_time_step(my_x, my_y)
+#outfile.write_vector_variable_time_step('displacement', 
+                                       #[my_disp_x,my_disp_y], 0.0)
+
+print("PD.py version 1.0.0\n")
+print("Output variables requested:")
+for item in vector_variables:
+    print("    " + item)
 
 #Time stepping loop
-max_iter = 11
-for iteration in range(1,max_iter):
+max_iter = 100
+time_step = 0.0
+for iteration in range(max_iter):
     
     #Print a information line
-    time = iteration*TIME_STEP
-    print "Iter = " + str(iteration) + " , time = " + str(time)
+    time = iteration*time_step
+    print("iter = " + str(iteration) + " , time step = " + str(time_step) +
+          " , sim time = " + str(time))
 
     #Enforce boundary conditions
-    my_disp_x[:HORIZON*GRIDSIZE] = 0.0
-    my_disp_y[:HORIZON*GRIDSIZE] = TIME_STEP*VELOCITY 
-    my_velocity_x[:HORIZON*GRIDSIZE] = 0.0
-    my_velocity_y[:HORIZON*GRIDSIZE] = VELOCITY 
+    my_disp_x[:HORIZON*GRIDSIZE] = -time*VELOCITY 
+    my_disp_y[:HORIZON*GRIDSIZE] = 0.0
+    my_velocity_x[:HORIZON*GRIDSIZE] = -VELOCITY 
+    my_velocity_y[:HORIZON*GRIDSIZE] = 0.0
     #
-    my_disp_x[-HORIZON*GRIDSIZE:] = 0.0
-    my_disp_y[-HORIZON*GRIDSIZE:] = -TIME_STEP*VELOCITY 
-    my_velocity_x[-HORIZON*GRIDSIZE:] = 0.0
-    my_velocity_y[-HORIZON*GRIDSIZE:] = -VELOCITY 
+    my_disp_x[-HORIZON*GRIDSIZE:] = time*VELOCITY 
+    my_disp_y[-HORIZON*GRIDSIZE:] = 0.0
+    my_velocity_x[-HORIZON*GRIDSIZE:] = VELOCITY 
+    my_velocity_y[-HORIZON*GRIDSIZE:] = 0.0
         
     #Compute the internal force
-    my_force_x, my_force_y = compute_internal_force(my_x, my_y, my_disp_x,
-                                                    my_disp_y, my_families,
-                                                    my_ref_mag_state,
-                                                    my_weighted_volume,
-                                                    my_volumes,
-                                                    my_number_of_nodes,
-                                                    BULK_MODULUS)
+    my_force_x = np.zeros(my_number_of_nodes,dtype=np.double)
+    my_force_y = np.zeros(my_number_of_nodes,dtype=np.double)
+    
+    compute_internal_force(my_force_x, my_force_y, my_x, my_y, my_disp_x, 
+            my_disp_y, my_families, my_ref_mag_state, my_weighted_volume, 
+            my_volumes, my_number_of_nodes, BULK_MODULUS)
  
     #Compute the nodal acceleration
     my_accel_x_old = my_accel_x.copy()
@@ -184,11 +233,17 @@ for iteration in range(1,max_iter):
     my_disp_x += my_velocity_x*TIME_STEP + 0.5*my_accel_x*TIME_STEP*TIME_STEP
     my_disp_y += my_velocity_y*TIME_STEP + 0.5*my_accel_y*TIME_STEP*TIME_STEP
 
-    if iteration % 5 == 0 or iteration == (max_iter - 1):
-        outfile.write_geometry_file_timestep(my_x, my_y)
-        outfile.write_vector_variable_timestep('displacement', 
+    #Compute stable time step
+    time_step = compute_stable_time_step(my_x, my_y, my_disp_x, my_disp_y, 
+            my_families, my_ref_mag_state, my_weighted_volume, my_volumes, 
+            my_number_of_nodes, BULK_MODULUS,RHO)
+
+    #Dump plots
+    if iteration % 10 == 0 or iteration == (max_iter-1):
+        outfile.write_geometry_file_time_step(my_x, my_y)
+        outfile.write_vector_variable_time_step('displacement', 
                                                [my_disp_x,my_disp_y], time)
-        outfile.append_timestep(time)
+        outfile.append_time_step(time)
 
 
 outfile.finalize()

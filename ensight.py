@@ -3,7 +3,8 @@ import os
 
 class Ensight:
     
-    def __init__(self, filename='output', vector_var_names=None,scalar_var_names=None):
+    def __init__(self, filename='output', vector_var_names=None,
+            scalar_var_names=None):
 
         directory = './ensight_files/'
         if not os.path.exists(directory):
@@ -20,10 +21,12 @@ class Ensight:
         self.__init_case_file()
        
         if self.__vv_names != None:
-            self.__vector_var_files = [ open(directory+afilename+'.var','w') for afilename in self.__vv_names ]
+            self.__vector_var_files = [ open(directory+afilename+'.var','w') 
+                    for afilename in self.__vv_names ]
         
         if self.__sv_names != None:
-            self.__scalar_var_files = [ open(directory+afilename+'.var','w') for afilename in self.__sv_names ]
+            self.__scalar_var_files = [ open(directory+afilename+'.var','w') 
+                    for afilename in self.__sv_names ]
 
         return
 
@@ -39,16 +42,18 @@ class Ensight:
 
         if self.__vv_names != None:
             for item in self.__vv_names:
-                print >> self.__case_file, 'vector per node: 1 1 ' + item + ' ' + item +'.var'
+                print >> self.__case_file, ('vector per node: 1 1 ' + 
+                        item + ' ' + item +'.var')
 
         if self.__sv_names != None:
             for item in self.__vv_names:
-                print >> self.__case_file, 'scalar per node: 1 1 ' + item + ' ' + item +'.var'
+                print >> self.__case_file, ('scalar per node: 1 1 ' + 
+                        item + ' ' + item +'.var')
 
         return
 
     #Create Ensight Format Case file
-    def write_geometry_file_timestep(self, x, y):
+    def write_geometry_file_time_step(self, x, y):
         """ Initialize Ensight geometry file"""
 
         print >> self.__geo_file, 'BEGIN TIME STEP'
@@ -74,7 +79,7 @@ class Ensight:
 
         return
 
-    def write_vector_variable_timestep(self, variable_name, variable, time):
+    def write_vector_variable_time_step(self, variable_name, variable, time):
 
         write_index = None
         for index,aname in enumerate(self.__vv_names):
@@ -96,7 +101,7 @@ class Ensight:
         return
     
 
-    def write_scalar_variable_timestep(self, variable_name, variable, time):
+    def write_scalar_variable_time_step(self, variable_name, variable, time):
 
         write_index = None
         for index,aname in enumerate(self.__sv_names):
@@ -118,7 +123,7 @@ class Ensight:
         return
 
 
-    def append_timestep(self,time):
+    def append_time_step(self,time):
 
         self.times.append(time)
 
