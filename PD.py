@@ -13,7 +13,6 @@ from ensight import Ensight
 
 ### Peridynamic functions ###
 
-
 # Simple constitutive model
 def scalar_force_state_fun(exten_state, weighted_volume, bulk_modulus):
     """Computes the scalar force state.  This is the state-based version of a
@@ -191,12 +190,19 @@ print("Output variables requested:")
 for item in vector_variables:
     print("    " + item)
 
-#Time stepping loop
 max_iter = 1000
 time_step = TIME_STEP
 verbose = False
-progress = ProgressBar()
-for iteration in progress(range(max_iter)):
+
+print("Running...")
+if verbose:
+    iterable = range(max_iter)
+else:
+    progress = ProgressBar()
+    iterable = progress(range(max_iter))
+
+#Time stepping loop
+for iteration in iterable:
     
     #Print a information line
     time = iteration*time_step
