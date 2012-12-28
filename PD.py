@@ -8,6 +8,7 @@ import numpy as np
 import scipy.spatial
 import matplotlib.delaunay as delaun
 
+from progressbar import ProgressBar
 from ensight import Ensight
 
 ### Peridynamic functions ###
@@ -191,14 +192,18 @@ for item in vector_variables:
     print("    " + item)
 
 #Time stepping loop
-max_iter = 100
-time_step = 0.0
-for iteration in range(max_iter):
+max_iter = 1000
+time_step = TIME_STEP
+verbose = False
+progress = ProgressBar()
+for iteration in progress(range(max_iter)):
     
     #Print a information line
     time = iteration*time_step
-    print("iter = " + str(iteration) + " , time step = " + str(time_step) +
-          " , sim time = " + str(time))
+
+    if verbose:
+        print("iter = " + str(iteration) + " , time step = " + str(time_step) +
+              " , sim time = " + str(time))
 
     #Enforce boundary conditions
     my_disp_x[:HORIZON*GRIDSIZE] = -time*VELOCITY 
@@ -234,9 +239,9 @@ for iteration in range(max_iter):
     my_disp_y += my_velocity_y*TIME_STEP + 0.5*my_accel_y*TIME_STEP*TIME_STEP
 
     #Compute stable time step
-    time_step = compute_stable_time_step(my_x, my_y, my_disp_x, my_disp_y, 
-            my_families, my_ref_mag_state, my_weighted_volume, my_volumes, 
-            my_number_of_nodes, BULK_MODULUS,RHO)
+    #time_step = compute_stable_time_step(my_x, my_y, my_disp_x, my_disp_y, 
+            #my_families, my_ref_mag_state, my_weighted_volume, my_volumes, 
+            #my_number_of_nodes, BULK_MODULUS,RHO)
 
     #Dump plots
     if iteration % 10 == 0 or iteration == (max_iter-1):
