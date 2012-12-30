@@ -1,14 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import sys
-import signal
 import math
 
 import numpy as np
 import scipy.spatial
-import scipy.optimize
-import matplotlib.delaunay as delaun
 
 from progressbar import ProgressBar
 from ensight import Ensight
@@ -85,62 +81,120 @@ def compute_stable_time_step(families, ref_mag_state, volumes, num_nodes,
     return np.amin(nodal_min_time_step)
 
 
-def insert_crack(line_eqn, box, tree, horizon, x_pos, y_pos, ref_pos_state_x,
-        ref_pos_state_y, influence_state):
+def test_line_seg_intersect(line1,line2):
+    """Tests to see if two lines segments intersect.  The lines are defined as:
+
+       line1 = [ x1_start, y1_start, x1_end, y1_end ]
+       line2 = [ x2_start, y2_start, x2_end, y2_end ]
+       
+    """
+    #See http://stackoverflow.com/questions/4977491/determining-if-two-
+    #line-segments-intersect for algorithm detail
+
+    x00, y00, x10, y10 = line1
+    x01, y01, x11, y11 = line2
+
+    det = x11* y01- x01* y11
+    if det == 0:
+        print "Det = 0"
+        return False
+    else:
     
-    #Read in bounding box for crack
-    min_x, min_y, max_x, max_y = box
+        s = 1 / det * ( (x00 - x10) * y01 - (y00 - y10) * x01)
+        t = 1 / det * -(-(x00- x10) * y11 + (y00 - y10) * x11)
+        print s, t
+
+        if 0.0 < s < 1.0: 
+            print "s is good"
+            if 0.0 < t < 1.0:
+                print "t is good"
+                return True
+        else:
+            return False
+
+def test_line_seg_intersect2(line1,line2):
+    """Tests to see if two lines segments intersect.  The lines are defined as:
+
+       line1 = [ p0_x, p0_y, p1_x, p1_y ]
+       line2 = [ p2_x, p2_y, p3_x, p3_y ]
+       
+    """
+    #See http://stackoverflow.com/questions/563198/how-do-you-detect-where-
+    #two-line-segments-intersect for algorithm details
+    
+    p0_x, p0_y, p1_x, p1_y = line1
+    p2_x, p2_y, p3_x, p3_y = line2
+
+    s1_x = p1_x - p0_x
+    s1_y = p1_y - p0_y
+    s2_x = p3_x - p2_x
+    s2_y = p3_y - p2_y
+
+    det = (-s2_x * s1_y + s1_x * s2_y)
+    if det == 0:
+        return False
+
+    s = (-s1_y * (p0_x - p2_x) + s1_x * (p0_y - p2_y)) / det
+    t = ( s2_x * (p0_y - p2_y) - s2_y * (p0_x - p2_x)) / det
+
+    if 0.0 <= s <= 1.0 and 0.0 <= t <= 1.0: 
+        return True
+    else:
+        return False
+
+def insert_crack(crack, tree, horizon, x_pos, y_pos, families,influence_state):
+    """
+       Inserts crack by setting influence_state to zero for bonds that cross
+       crack path.
+    """
+    
+    #Read in crack endpoints
+    min_x, min_y, max_x, max_y = crack
     #Calculate crack length
-    crack_length_x = abs(max_x - min_x)
-    crack_length_y = abs(max_y - min_y)
+    crack_length_x = max_x - min_x
+    crack_length_y = max_y - min_y
     crack_length = np.sqrt(crack_length_x ** 2.0 + crack_length_y ** 2.0)
     
     #Number of discrete points along crack length
-    number_points_along_crack = crack_length / horizon * 4.0
-    
-    #Find the points according to the equation of the line
-    j = np.complex(0,1)
-    x_points = np.r_[min_x:max_x:number_points_along_crack*j]
-    y_points = [ line_eqn(x) for x in x_points ] 
+    number_points_along_crack = int(math.ceil(crack_length / horizon))
 
+    #Find slope of crack line
+    slope_denom = max_x - min_x
+    j = np.complex(0,1)
+    if -1e-10 < slope_denom < 1e-10:
+        #Crack line is vertical,discrete points along crack path
+        x_points = [min_x for _ in range(number_points_along_crack)]
+        y_points = np.r_[min_y:max_y:number_points_along_crack*j]
+    else:
+        slope = (max_y - min_y) / slope_denom
+        line_eqn = lambda x: slope * (x - min_x) + min_y
+        #Find the discrete points along crack path
+        x_points = np.r_[min_x:max_x:number_points_along_crack*j]
+        y_points = [ line_eqn(x) for x in x_points ] 
+
+    #Create a tuple required by the scipy nearest neighbor search
     points_along_crack = zip(x_points,y_points)
 
-    nodes_near_crack = [tree.query_ball_point(point, 1.5*horizon, p=2, 
+    #Find all nodes that could possibly have bonds that cross crack path
+    nodes_near_crack = [tree.query_ball_point(point, 2.0*horizon, p=2, 
         eps=0.05) for point in points_along_crack]
-
+    
+    #The search above will produce duplicate neighbor nodes, make them into a
+    #unique 1-dimensional list
     nodes_near_crack_flat = list(set([  elem for iterable in nodes_near_crack 
             for elem in iterable ]))
-
                 
-                
-    oldsettings = np.seterr(divide='ignore')
-    slope_state = ref_pos_state_y / ref_pos_state_x
-
     #Loop over nodes near the crack to see if any bonds in the nodes family
     #cross the crack path
     for node_index in nodes_near_crack_flat:
-        #The slopes for each bond in the family
-        bonds_slopes_this_node = slope_state[node_index]
-        #Loop over the bonds in the nodes family
-        for bond_index,slope in enumerate(bonds_slopes_this_node):
-            #Solve for the x location of the cross point
-            if slope == nan:
-                x_int = scipy.optimize.fsolve(lambda x: slope*(x - 
-                    x_pos[node_index]) + y_pos[node_index] - 
-                    line_eqn(x),x_pos[node_index])
-            else:
-                x_int = scipy.optimize.fsolve(lambda x: slope*(x - 
-                    x_pos[node_index]) + y_pos[node_index] - 
-                    line_eqn(x),x_pos[node_index])
-            #Check to see if the x intersection point is within the crack
-            #bounding box
-            if min_x < x_int < max_x:
-                #Find the y intersection point, coorespoinding to the x
-                #intersection point
-                y_int = line_eqn(x_int)
-                #Check to see if the y intersection point is within the crack
-                #bounding box
-                if min_y < y_int < max_y:
+        #Loop over node family
+        for bond_index,end_point_index in enumerate(families[node_index]):
+            #Define the bond line segment as the line between the node and its
+            #endpoint.
+            bond_line_seg = [ x_pos[node_index], y_pos[node_index], 
+                x_pos[end_point_index], y_pos[end_point_index] ]
+            #Test for intersection
+            if test_line_seg_intersect2(crack,bond_line_seg):
                     #If we got to here that means we need to ``break'' the bond
                     influence_state[node_index][bond_index] = 0.0
     
@@ -150,8 +204,19 @@ def insert_crack(line_eqn, box, tree, horizon, x_pos, y_pos, ref_pos_state_x,
 #####################
 ### Main Program ####
 #####################
+#INPUTS
 GRIDSIZE = 30
 HORIZON = 3.
+TIME_STEP = 1.e-5
+#TIME_STEP = None
+VELOCITY = 10.
+BULK_MODULUS = 70.e9
+RHO = 7800
+SAFTEY_FACTOR = 0.5
+MAX_ITER = 1000
+PLOT_DUMP_FREQ = 100
+VERBOSE = True
+CRACK = [15., 5., 15., 25.]
 
 #Set up the grid
 grid = np.mgrid[0:GRIDSIZE:1., 0:GRIDSIZE:1.]
@@ -197,16 +262,6 @@ my_weighted_volume = np.array([np.dot(my_influence_state[i]*my_ref_mag_state[i],
     my_ref_mag_state[i]*my_volumes[my_families[i]]) 
     for i in range(my_number_of_nodes) ])
 
-#INPUTS
-TIME_STEP = 1.e-5
-#TIME_STEP = None
-VELOCITY = 10.
-BULK_MODULUS = 70.e9
-RHO = 7800
-SAFTEY_FACTOR = 0.5
-MAX_ITER = 1000
-PLOT_DUMP_FREQ = 100
-VERBOSE = True
 
 #Temparary arrays
 my_disp_x = np.zeros_like(my_x)
@@ -215,7 +270,6 @@ my_velocity_x = np.zeros_like(my_disp_x)
 my_velocity_y = np.zeros_like(my_disp_y)
 my_accel_x = np.zeros_like(my_disp_x)
 my_accel_y = np.zeros_like(my_disp_y)
-
 
 #Initialize output files
 vector_variables = ['displacement']
@@ -237,10 +291,10 @@ else:
     time_step = TIME_STEP
 
 #insert crack
-insert_crack(lambda x: x, [5, 5, 10, 10], my_tree, HORIZON, my_x, my_y, 
-        my_ref_pos_state_x, my_ref_pos_state_y, my_influence_state)
+insert_crack(CRACK, my_tree, HORIZON, my_x, my_y, my_families,
+        my_influence_state)
 
-print my_influence_state
+#print my_influence_state
 
 print("\nRunning...")
 if VERBOSE:
