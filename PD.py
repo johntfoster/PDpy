@@ -84,37 +84,6 @@ def compute_stable_time_step(families, ref_mag_state, volumes, num_nodes,
 def test_line_seg_intersect(line1,line2):
     """Tests to see if two lines segments intersect.  The lines are defined as:
 
-       line1 = [ x1_start, y1_start, x1_end, y1_end ]
-       line2 = [ x2_start, y2_start, x2_end, y2_end ]
-       
-    """
-    #See http://stackoverflow.com/questions/4977491/determining-if-two-
-    #line-segments-intersect for algorithm detail
-
-    x00, y00, x10, y10 = line1
-    x01, y01, x11, y11 = line2
-
-    det = x11* y01- x01* y11
-    if det == 0:
-        print "Det = 0"
-        return False
-    else:
-    
-        s = 1 / det * ( (x00 - x10) * y01 - (y00 - y10) * x01)
-        t = 1 / det * -(-(x00- x10) * y11 + (y00 - y10) * x11)
-        print s, t
-
-        if 0.0 < s < 1.0: 
-            print "s is good"
-            if 0.0 < t < 1.0:
-                print "t is good"
-                return True
-        else:
-            return False
-
-def test_line_seg_intersect2(line1,line2):
-    """Tests to see if two lines segments intersect.  The lines are defined as:
-
        line1 = [ p0_x, p0_y, p1_x, p1_y ]
        line2 = [ p2_x, p2_y, p3_x, p3_y ]
        
@@ -130,17 +99,29 @@ def test_line_seg_intersect2(line1,line2):
     s2_x = p3_x - p2_x
     s2_y = p3_y - p2_y
 
-    det = (-s2_x * s1_y + s1_x * s2_y)
-    if det == 0:
-        return False
+    denom = (-s2_x * s1_y + s1_x * s2_y)
 
-    s = (-s1_y * (p0_x - p2_x) + s1_x * (p0_y - p2_y)) / det
-    t = ( s2_x * (p0_y - p2_y) - s2_y * (p0_x - p2_x)) / det
+    num_s = (-s1_y * (p0_x - p2_x) + s1_x * (p0_y - p2_y))
+    num_t = ( s2_x * (p0_y - p2_y) - s2_y * (p0_x - p2_x))
+
+    #Detect if lines are parallel or coincident
+    if -1e-10 < denom < 1e-10:
+        if abs(num_s) - abs(num_t) < 1e-5:
+            #Lines are coincident
+            return 2
+        else:
+            #Lines are parallel, but not coincident
+            return 0
+
+    s =  num_s  / denom
+    t =  num_t / denom
 
     if 0.0 <= s <= 1.0 and 0.0 <= t <= 1.0: 
-        return True
+        #Lines intersect (or meet at endpoints)
+        return 1
     else:
-        return False
+        #Lines do not intersect
+        return 0
 
 def insert_crack(crack, tree, horizon, x_pos, y_pos, families,influence_state):
     """
@@ -156,7 +137,7 @@ def insert_crack(crack, tree, horizon, x_pos, y_pos, families,influence_state):
     crack_length = np.sqrt(crack_length_x ** 2.0 + crack_length_y ** 2.0)
     
     #Number of discrete points along crack length
-    number_points_along_crack = int(math.ceil(crack_length / horizon))
+    number_points_along_crack = int(math.ceil(crack_length / horizon * 4.0))
 
     #Find slope of crack line
     slope_denom = max_x - min_x
@@ -194,9 +175,16 @@ def insert_crack(crack, tree, horizon, x_pos, y_pos, families,influence_state):
             bond_line_seg = [ x_pos[node_index], y_pos[node_index], 
                 x_pos[end_point_index], y_pos[end_point_index] ]
             #Test for intersection
-            if test_line_seg_intersect2(crack,bond_line_seg):
-                    #If we got to here that means we need to ``break'' the bond
-                    influence_state[node_index][bond_index] = 0.0
+            test = test_line_seg_intersect(crack,bond_line_seg)
+            if test == 1:
+                #If we got to here that means we need to ``break'' the bond
+                influence_state[node_index][bond_index] = 0.0
+            #else if test == 2:
+                ##Node lies directly on the crack path, need to remove if from
+                ##the grid
+                #x_pos.remove(node_index)
+                #y_pos.remove(node_index)
+                
     
     return
 
@@ -216,7 +204,7 @@ SAFTEY_FACTOR = 0.5
 MAX_ITER = 1000
 PLOT_DUMP_FREQ = 100
 VERBOSE = True
-CRACK = [15., 5., 15., 25.]
+CRACK = [14.5, 5., 14.5, 25.]
 
 #Set up the grid
 grid = np.mgrid[0:GRIDSIZE:1., 0:GRIDSIZE:1.]
