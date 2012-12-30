@@ -10,16 +10,13 @@ class Ensight:
         if not os.path.exists(directory):
             os.makedirs(directory)
 
-        self.__case_file = open(directory+filename+'.case','w')
         self.__geo_file = open(directory+filename+'.geo','w')
         
         self.__vv_names = vector_var_names
         self.__sv_names = scalar_var_names
         self.__fname = filename
-        self.times = [0.0]
+        self.times = []
 
-        self.__init_case_file()
-       
         if self.__vv_names != None:
             self.__vector_var_files = [ open(directory+afilename+'.var','w') 
                     for afilename in self.__vv_names ]
@@ -31,8 +28,11 @@ class Ensight:
         return
 
 
-    def __init_case_file(self):
+    def write_case_file(self):
         """Initialize Ensight case file"""
+        
+        directory = './ensight_files/'
+        self.__case_file = open(directory+self.__fname+'.case','w')
 
         print >> self.__case_file, 'FORMAT'
         print >> self.__case_file, 'type: ensight gold'
@@ -49,6 +49,18 @@ class Ensight:
             for item in self.__vv_names:
                 print >> self.__case_file, ('scalar per node: 1 1 ' + 
                         item + ' ' + item +'.var')
+
+        print >> self.__case_file, 'TIME'
+        print >> self.__case_file, 'time set: 1'
+        print >> self.__case_file, 'number of steps: ' + str(len(self.times))
+        print >> self.__case_file, 'time values: '
+        for item in self.times:
+            print >> self.__case_file, item
+        print >> self.__case_file, 'FILE'
+        print >> self.__case_file, 'file set: 1'
+        print >> self.__case_file, 'number of steps: ' + str(len(self.times))
+
+        self.__case_file.close()
 
         return
 
@@ -130,26 +142,8 @@ class Ensight:
         return 
 
 
-    def __finalize_case_file(self):
-
-        print >> self.__case_file, 'TIME'
-        print >> self.__case_file, 'time set: 1'
-        print >> self.__case_file, 'number of steps: ' + str(len(self.times))
-        print >> self.__case_file, 'time values: '
-        for item in self.times:
-            print >> self.__case_file, item
-        print >> self.__case_file, 'FILE'
-        print >> self.__case_file, 'file set: 1'
-        print >> self.__case_file, 'number of steps: ' + str(len(self.times))
-
-        return
-
-
     def finalize(self):
         
-        self.__finalize_case_file()
-
-        self.__case_file.close()
         self.__geo_file.close()
         
         if self.__vv_names != None:

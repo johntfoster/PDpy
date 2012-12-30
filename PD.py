@@ -3,9 +3,11 @@
 
 import sys
 import signal
+import math
 
 import numpy as np
 import scipy.spatial
+import scipy.optimize
 import matplotlib.delaunay as delaun
 
 from progressbar import ProgressBar
@@ -14,16 +16,17 @@ from ensight import Ensight
 ### Peridynamic functions ###
 
 # Simple constitutive model
-def scalar_force_state_fun(exten_state, weighted_volume, bulk_modulus):
+def scalar_force_state_fun(exten_state, weighted_volume, bulk_modulus, 
+        influence_state):
     """Computes the scalar force state.  This is the state-based version of a
        bond based material."""
-    return 9.0 * bulk_modulus / weighted_volume * exten_state
+    return 9.0 * bulk_modulus * influence_state / weighted_volume * exten_state
 
 
 # Internal force calculation
 def compute_internal_force(force_x, force_y, pos_x, pos_y, disp_x, disp_y, 
         families, ref_mag_state, weighted_volume, volumes, num_nodes, 
-        bulk_modulus):
+        bulk_modulus,influence_state):
     """ Computes the peridynamic internal force due to deformations."""
 
     #Compute the deformed positions of the nodes
@@ -49,9 +52,9 @@ def compute_internal_force(force_x, force_y, pos_x, pos_y, disp_x, disp_y,
     exten_state = def_mag_state - ref_mag_state
 
     #Compute scalar force state
-    scalar_force_state = np.array([scalar_force_state_fun(exten_state[i],
-                                  weighted_volume[i], bulk_modulus)
-                                  for i in range(num_nodes)])
+    scalar_force_state = np.array([scalar_force_state_fun(exten_state[i], 
+        weighted_volume[i], bulk_modulus, influence_state[i]) 
+        for i in range(num_nodes)])
    
     #Compute the force state
     force_state_x = scalar_force_state * def_unit_state_x
@@ -67,55 +70,86 @@ def compute_internal_force(force_x, force_y, pos_x, pos_y, disp_x, disp_y,
     return 
 
 
-def compute_stable_time_step(pos_x, pos_y, disp_x, disp_y, families, 
-                            ref_mag_state, weighted_volume, volumes, 
-                            num_nodes, bulk_modulus,rho):
+def compute_stable_time_step(families, ref_mag_state, volumes, num_nodes, 
+        bulk_modulus,rho,horizon):
 
-    h = 1.e-50
-    j = np.complex(0,h)
+    spring_constant = 18.0 * bulk_modulus / math.pi / horizon**4.0
 
-    purturb_disp_x = np.empty(num_nodes,dtype=np.complex)
-    purturb_disp_x[:] = disp_x
-    purturb_disp_y = np.empty(num_nodes,dtype=np.complex)
-    purturb_disp_y[:] = disp_x
+    crit_time_step_denom = np.array([spring_constant * volumes[families[i]] / 
+            ref_mag_state[i] for i in range(num_nodes)])**0.5
 
-    stiff_x = np.zeros(num_nodes,dtype=np.double)
-    stiff_y = np.zeros(num_nodes,dtype=np.double)
-
-    max_eigenvalue_estimate = 1.e-15
-
-    for i in range(2*num_nodes):
-
-        force_x = np.zeros(num_nodes,dtype=np.complex)
-        force_y = np.zeros(num_nodes,dtype=np.complex)
-
-        if i % 2 == 0:
-            purturb_disp_x[i / 2] += j
-            compute_internal_force(force_x, force_y, pos_x, pos_y, 
-                    purturb_disp_x, disp_y, families, ref_mag_state, 
-                    weighted_volume, volumes, num_nodes, bulk_modulus)
-            purturb_disp_x[i / 2] = disp_x[i / 2]
-        else:
-            purturb_disp_y[i / 2] += j
-            compute_internal_force(force_x, force_y, pos_x, pos_y, 
-                    disp_x, purturb_disp_y, families, ref_mag_state, 
-                    weighted_volume, volumes, num_nodes, bulk_modulus)
-            purturb_disp_y[i / 2] = disp_y[i / 2]
-
-        stiff_x += np.abs(force_x.imag/h/rho)
-        stiff_y += np.abs(force_y.imag/h/rho)
-
-        max_x_arr = np.amax(stiff_x)
-        max_y_arr = np.amax(stiff_y)
-        
-        max_eigenvalue_estimate =  np.amax([max_x_arr,max_y_arr,max_eigenvalue_estimate])
-
-    return 0.8*2./max_eigenvalue_estimate
+    critical_time_steps = np.sqrt(2.0 * rho) / crit_time_step_denom
     
+    nodal_min_time_step = [ np.amin(item) for item in critical_time_steps ]
 
-# MPI communicator function
+    return np.amin(nodal_min_time_step)
 
+
+def insert_crack(line_eqn, box, tree, horizon, x_pos, y_pos, ref_pos_state_x,
+        ref_pos_state_y, influence_state):
+    
+    #Read in bounding box for crack
+    min_x, min_y, max_x, max_y = box
+    #Calculate crack length
+    crack_length_x = abs(max_x - min_x)
+    crack_length_y = abs(max_y - min_y)
+    crack_length = np.sqrt(crack_length_x ** 2.0 + crack_length_y ** 2.0)
+    
+    #Number of discrete points along crack length
+    number_points_along_crack = crack_length / horizon * 4.0
+    
+    #Find the points according to the equation of the line
+    j = np.complex(0,1)
+    x_points = np.r_[min_x:max_x:number_points_along_crack*j]
+    y_points = [ line_eqn(x) for x in x_points ] 
+
+    points_along_crack = zip(x_points,y_points)
+
+    nodes_near_crack = [tree.query_ball_point(point, 1.5*horizon, p=2, 
+        eps=0.05) for point in points_along_crack]
+
+    nodes_near_crack_flat = list(set([  elem for iterable in nodes_near_crack 
+            for elem in iterable ]))
+
+                
+                
+    oldsettings = np.seterr(divide='ignore')
+    slope_state = ref_pos_state_y / ref_pos_state_x
+
+    #Loop over nodes near the crack to see if any bonds in the nodes family
+    #cross the crack path
+    for node_index in nodes_near_crack_flat:
+        #The slopes for each bond in the family
+        bonds_slopes_this_node = slope_state[node_index]
+        #Loop over the bonds in the nodes family
+        for bond_index,slope in enumerate(bonds_slopes_this_node):
+            #Solve for the x location of the cross point
+            if slope == nan:
+                x_int = scipy.optimize.fsolve(lambda x: slope*(x - 
+                    x_pos[node_index]) + y_pos[node_index] - 
+                    line_eqn(x),x_pos[node_index])
+            else:
+                x_int = scipy.optimize.fsolve(lambda x: slope*(x - 
+                    x_pos[node_index]) + y_pos[node_index] - 
+                    line_eqn(x),x_pos[node_index])
+            #Check to see if the x intersection point is within the crack
+            #bounding box
+            if min_x < x_int < max_x:
+                #Find the y intersection point, coorespoinding to the x
+                #intersection point
+                y_int = line_eqn(x_int)
+                #Check to see if the y intersection point is within the crack
+                #bounding box
+                if min_y < y_int < max_y:
+                    #If we got to here that means we need to ``break'' the bond
+                    influence_state[node_index][bond_index] = 0.0
+    
+    return
+
+
+#####################
 ### Main Program ####
+#####################
 GRIDSIZE = 30
 HORIZON = 3.
 
@@ -163,11 +197,16 @@ my_weighted_volume = np.array([np.dot(my_influence_state[i]*my_ref_mag_state[i],
     my_ref_mag_state[i]*my_volumes[my_families[i]]) 
     for i in range(my_number_of_nodes) ])
 
-#Time step
-TIME_STEP = 1.e-6
+#INPUTS
+TIME_STEP = 1.e-5
+#TIME_STEP = None
 VELOCITY = 10.
 BULK_MODULUS = 70.e9
 RHO = 7800
+SAFTEY_FACTOR = 0.5
+MAX_ITER = 1000
+PLOT_DUMP_FREQ = 100
+VERBOSE = True
 
 #Temparary arrays
 my_disp_x = np.zeros_like(my_x)
@@ -185,21 +224,30 @@ outfile = Ensight('output', vector_variables)
 #outfile.write_vector_variable_time_step('displacement', 
                                        #[my_disp_x,my_disp_y], 0.0)
 
-print("PD.py version 1.0.0\n")
+print("PD.py version 0.1.0\n")
 print("Output variables requested:")
 for item in vector_variables:
     print("    " + item)
 
-max_iter = 1000
-time_step = TIME_STEP
-verbose = False
+if TIME_STEP == None:
+    time_step = SAFTEY_FACTOR*compute_stable_time_step(my_families, 
+            my_ref_mag_state, my_volumes, my_number_of_nodes, BULK_MODULUS,
+            RHO, HORIZON)
+else:
+    time_step = TIME_STEP
 
-print("Running...")
-if verbose:
-    iterable = range(max_iter)
+#insert crack
+insert_crack(lambda x: x, [5, 5, 10, 10], my_tree, HORIZON, my_x, my_y, 
+        my_ref_pos_state_x, my_ref_pos_state_y, my_influence_state)
+
+print my_influence_state
+
+print("\nRunning...")
+if VERBOSE:
+    iterable = range(MAX_ITER)
 else:
     progress = ProgressBar()
-    iterable = progress(range(max_iter))
+    iterable = progress(range(MAX_ITER))
 
 #Time stepping loop
 for iteration in iterable:
@@ -207,7 +255,7 @@ for iteration in iterable:
     #Print a information line
     time = iteration*time_step
 
-    if verbose:
+    if VERBOSE:
         print("iter = " + str(iteration) + " , time step = " + str(time_step) +
               " , sim time = " + str(time))
 
@@ -228,7 +276,7 @@ for iteration in iterable:
     
     compute_internal_force(my_force_x, my_force_y, my_x, my_y, my_disp_x, 
             my_disp_y, my_families, my_ref_mag_state, my_weighted_volume, 
-            my_volumes, my_number_of_nodes, BULK_MODULUS)
+            my_volumes, my_number_of_nodes, BULK_MODULUS,my_influence_state)
  
     #Compute the nodal acceleration
     my_accel_x_old = my_accel_x.copy()
@@ -237,12 +285,12 @@ for iteration in iterable:
     my_accel_y = my_force_y/my_volumes/RHO
     
     #Compute the nodal velocity
-    my_velocity_x += 0.5*(my_accel_x_old + my_accel_x)*TIME_STEP
-    my_velocity_y += 0.5*(my_accel_y_old + my_accel_y)*TIME_STEP
+    my_velocity_x += 0.5*(my_accel_x_old + my_accel_x)*time_step
+    my_velocity_y += 0.5*(my_accel_y_old + my_accel_y)*time_step
     
     #Compute the new displacements
-    my_disp_x += my_velocity_x*TIME_STEP + 0.5*my_accel_x*TIME_STEP*TIME_STEP
-    my_disp_y += my_velocity_y*TIME_STEP + 0.5*my_accel_y*TIME_STEP*TIME_STEP
+    my_disp_x += my_velocity_x*time_step + 0.5*my_accel_x*time_step*time_step
+    my_disp_y += my_velocity_y*time_step + 0.5*my_accel_y*time_step*time_step
 
     #Compute stable time step
     #time_step = compute_stable_time_step(my_x, my_y, my_disp_x, my_disp_y, 
@@ -250,11 +298,14 @@ for iteration in iterable:
             #my_number_of_nodes, BULK_MODULUS,RHO)
 
     #Dump plots
-    if iteration % 10 == 0 or iteration == (max_iter-1):
+    if iteration % PLOT_DUMP_FREQ  == 0 or iteration == (MAX_ITER-1):
+        if VERBOSE:
+            print "Writing plot file..."
         outfile.write_geometry_file_time_step(my_x, my_y)
         outfile.write_vector_variable_time_step('displacement', 
                                                [my_disp_x,my_disp_y], time)
         outfile.append_time_step(time)
+        outfile.write_case_file()
 
 
 outfile.finalize()
