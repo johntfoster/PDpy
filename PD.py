@@ -276,14 +276,18 @@ my_accel_x = np.zeros_like(my_disp_x)
 my_accel_y = np.zeros_like(my_disp_y)
 my_force_x = np.zeros_like(my_x)
 my_force_y = np.zeros_like(my_y)
+my_damage = np.zeros_like(my_x)
 
 #Initialize output files
 vector_variables = ['displacement']
-outfile = Ensight('output', vector_variables)
+scalar_variables = ['damage']
+outfile = Ensight('output', vector_variables, scalar_variables)
 
 print("PD.py version 0.1.0\n")
 print("Output variables requested:")
 for item in vector_variables:
+    print("    " + item)
+for item in scalar_variables:
     print("    " + item)
 
 if TIME_STEP == None:
@@ -344,6 +348,9 @@ for iteration in loop_iterable:
     my_disp_x += my_velocity_x*time_step + 0.5*my_accel_x*time_step*time_step
     my_disp_y += my_velocity_y*time_step + 0.5*my_accel_y*time_step*time_step
 
+    #Compute the damage
+    my_damage = 1./np.mean(my_influence_state,axis=1)
+
     #Compute stable time step
     #time_step = compute_stable_time_step(my_x, my_y, my_disp_x, my_disp_y, 
             #my_families, my_ref_mag_state, my_weighted_volume, my_volumes, 
@@ -356,6 +363,8 @@ for iteration in loop_iterable:
         outfile.write_geometry_file_time_step(my_x, my_y)
         outfile.write_vector_variable_time_step('displacement', 
                                                [my_disp_x,my_disp_y], time)
+        outfile.write_scalar_variable_time_step('damage', 
+                                               my_damage, time)
         outfile.append_time_step(time)
         outfile.write_case_file()
 
