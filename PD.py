@@ -17,6 +17,9 @@ def scalar_force_state_fun(exten_state, weighted_volume, bulk_modulus,
         influence_state):
     """Computes the scalar force state.  This is the state-based version of a
        bond based material."""
+
+    #Apply a critical stretch damage model
+    influence_state[exten_state>0.1] = 0.0
     return 9.0 * bulk_modulus * influence_state / weighted_volume * exten_state
 
 
