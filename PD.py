@@ -203,7 +203,7 @@ def insert_crack(crack, tree, horizon, x_pos, y_pos, families,influence_state):
 ### Main Program ####
 #####################
 #INPUTS
-GRIDSIZE = 50
+GRIDSIZE = 30
 HORIZON = 3.
 TIME_STEP = 1.e-5
 #TIME_STEP = None
