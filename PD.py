@@ -57,11 +57,21 @@ def compute_internal_force(force_x, force_y, pos_x, pos_y, disp_x, disp_y,
     force_state_y = scalar_force_state * def_unit_state_y
 
     #Integrate nodal forces 
+    #Sum all the force contribution from j nodes back to i,the sum operation
+    #automatically excludes the masked entries
     force_x += np.sum(force_state_x * volumes[families], axis=1)
     force_y += np.sum(force_state_y * volumes[families], axis=1)
 
-    force_x[[families]] -= force_state_x * volumes[:,None]
-    force_y[[families]] -= force_state_y * volumes[:,None]
+    #Subtract the force contribution from i nodes from j, the bincount()
+    #operation is a trick to keep it fast in Numpy.  See:
+    #<http://stackoverflow.com/questions/9790436/numpy-accumulating-one-array-
+    #in-another-using-index-array> for details
+    tmp_x = np.bincount(families.compressed(), (force_state_x * 
+        volumes[:,None]).compressed()) 
+    tmp_y = np.bincount(families.compressed(), (force_state_y * 
+        volumes[:,None]).compressed()) 
+    force_x[:len(tmp_x)] -= tmp_x
+    force_y[:len(tmp_y)] -= tmp_y
 
     return 
 
@@ -201,9 +211,9 @@ VELOCITY = 10.
 BULK_MODULUS = 70.e9
 RHO = 7800
 SAFTEY_FACTOR = 0.5
-MAX_ITER = 10000
-PLOT_DUMP_FREQ = 500
-VERBOSE = True
+MAX_ITER = 1000
+PLOT_DUMP_FREQ = 100
+VERBOSE = False
 CRACK = [14.5, 5., 14.5, 25.]
 
 #Set up the grid
@@ -232,7 +242,9 @@ my_families = [my_tree.query_ball_point(node, HORIZON, p=2)
 max_family_length = max([ len(item) for item in my_families])
 
 #Pad the array with -1's, then create a mask, effectively hiding the -1's, this
-#allows us to do fast numpy operations we wouldn't otherwise be able to do.
+#allows us to do fast numpy operations we wouldn't otherwise be able to do. See
+#<http://stackoverflow.com/questions/14104844/broadcasting-across-an-indexed-
+#array-numpy/14124444#14124444> for details.
 my_families = ma.masked_equal([np.pad(i,(0,max_family_length-len(i)),
     mode='constant',constant_values=-1) for i in my_families ],-1)
 
@@ -291,13 +303,13 @@ else:
 
 print("\nRunning...")
 if VERBOSE:
-    iterable = range(MAX_ITER)
+    loop_iterable = range(MAX_ITER)
 else:
     progress = ProgressBar()
-    iterable = progress(range(MAX_ITER))
+    loop_iterable = progress(range(MAX_ITER))
 
 #Time stepping loop
-for iteration in iterable:
+for iteration in loop_iterable:
     
     #Print a information line
     time = iteration*time_step
