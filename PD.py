@@ -57,8 +57,8 @@ def compute_internal_force(force_x, force_y, pos_x, pos_y, disp_x, disp_y,
     force_state_y = scalar_force_state * def_unit_state_y
 
     #Integrate nodal forces 
-    force_x = np.sum(force_state_x * volumes[families], axis=1)
-    force_y = np.sum(force_state_y * volumes[families], axis=1)
+    force_x += np.sum(force_state_x * volumes[families], axis=1)
+    force_y += np.sum(force_state_y * volumes[families], axis=1)
 
     force_x[[families]] -= force_state_x * volumes[:,None]
     force_y[[families]] -= force_state_y * volumes[:,None]
@@ -193,7 +193,7 @@ def insert_crack(crack, tree, horizon, x_pos, y_pos, families,influence_state):
 ### Main Program ####
 #####################
 #INPUTS
-GRIDSIZE = 30
+GRIDSIZE = 50
 HORIZON = 3.
 TIME_STEP = 1.e-5
 #TIME_STEP = None
@@ -201,8 +201,8 @@ VELOCITY = 10.
 BULK_MODULUS = 70.e9
 RHO = 7800
 SAFTEY_FACTOR = 0.5
-MAX_ITER = 1000
-PLOT_DUMP_FREQ = 100
+MAX_ITER = 10000
+PLOT_DUMP_FREQ = 500
 VERBOSE = True
 CRACK = [14.5, 5., 14.5, 25.]
 
@@ -264,6 +264,8 @@ my_velocity_x = np.zeros_like(my_disp_x)
 my_velocity_y = np.zeros_like(my_disp_y)
 my_accel_x = np.zeros_like(my_disp_x)
 my_accel_y = np.zeros_like(my_disp_y)
+my_force_x = np.zeros_like(my_x)
+my_force_y = np.zeros_like(my_y)
 
 #Initialize output files
 vector_variables = ['displacement']
@@ -316,8 +318,8 @@ for iteration in iterable:
     my_velocity_y[-HORIZON*GRIDSIZE:] = 0.0
         
     #Compute the internal force
-    my_force_x = np.zeros(my_number_of_nodes,dtype=np.double)
-    my_force_y = np.zeros(my_number_of_nodes,dtype=np.double)
+    my_force_x[:] = 0.0
+    my_force_y[:] = 0.0
     
     compute_internal_force(my_force_x, my_force_y, my_x, my_y, my_disp_x, 
             my_disp_y, my_families, my_ref_mag_state, my_weighted_volume, 
