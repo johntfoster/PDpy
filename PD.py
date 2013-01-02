@@ -4,6 +4,7 @@
 import math
 
 import numpy as np
+import numpy.ma as ma
 import scipy.spatial
 
 from progressbar import ProgressBar
@@ -31,14 +32,14 @@ def compute_internal_force(force_x, force_y, pos_x, pos_y, disp_x, disp_y,
 
 
     #Compute deformation state
-    def_state_x = np.array([def_x[families[i]] - def_x[i]
-                           for i in range(num_nodes)])
-    def_state_y = np.array([def_y[families[i]] - def_y[i]
-                           for i in range(num_nodes)])
+    def_state_x = ma.masked_array(def_x[families] - def_x[:,None],
+            mask=families.mask)
+    def_state_y = ma.masked_array(def_y[families] - def_y[:,None],
+            mask=families.mask)
 
     #Compute deformation magnitude state
-    def_mag_state = np.array(def_state_x * def_state_x +
-                             def_state_y * def_state_y) ** 0.5
+    def_mag_state = (def_state_x * def_state_x + 
+            def_state_y * def_state_y) ** 0.5
 
     #Compute deformation unit state
     def_unit_state_x = def_state_x / def_mag_state
@@ -48,20 +49,29 @@ def compute_internal_force(force_x, force_y, pos_x, pos_y, disp_x, disp_y,
     exten_state = def_mag_state - ref_mag_state
 
     #Compute scalar force state
-    scalar_force_state = np.array([scalar_force_state_fun(exten_state[i], 
-        weighted_volume[i], bulk_modulus, influence_state[i]) 
-        for i in range(num_nodes)])
+    scalar_force_state = scalar_force_state_fun(exten_state, weighted_volume,
+            bulk_modulus, influence_state) 
    
     #Compute the force state
     force_state_x = scalar_force_state * def_unit_state_x
     force_state_y = scalar_force_state * def_unit_state_y
 
     #Integrate nodal forces 
-    for i in range(num_nodes):
-        force_x[i] += np.dot(force_state_x[i], volumes[families[i]])
-        force_y[i] += np.dot(force_state_y[i], volumes[families[i]])
-        force_x[families[i]] -= force_state_x[i] * volumes[i]
-        force_y[families[i]] -= force_state_y[i] * volumes[i]
+    #Sum all the force contribution from j nodes back to i,the sum operation
+    #automatically excludes the masked entries
+    force_x += np.sum(force_state_x * volumes[families], axis=1)
+    force_y += np.sum(force_state_y * volumes[families], axis=1)
+
+    #Subtract the force contribution from i nodes from j, the bincount()
+    #operation is a trick to keep it fast in Numpy.  See:
+    #<http://stackoverflow.com/questions/9790436/numpy-accumulating-one-array-
+    #in-another-using-index-array> for details
+    tmp_x = np.bincount(families.compressed(), (force_state_x * 
+        volumes[:,None]).compressed()) 
+    tmp_y = np.bincount(families.compressed(), (force_state_y * 
+        volumes[:,None]).compressed()) 
+    force_x[:len(tmp_x)] -= tmp_x
+    force_y[:len(tmp_y)] -= tmp_y
 
     return 
 
@@ -203,7 +213,7 @@ RHO = 7800
 SAFTEY_FACTOR = 0.5
 MAX_ITER = 1000
 PLOT_DUMP_FREQ = 100
-VERBOSE = True
+VERBOSE = False
 CRACK = [14.5, 5., 14.5, 25.]
 
 #Set up the grid
@@ -222,34 +232,41 @@ my_number_of_nodes = len(my_nodes)
 my_tree = scipy.spatial.KDTree(my_nodes)
 
 #Get all families
-my_families = [ my_tree.query_ball_point(node, HORIZON, p=2, eps=0.05) 
-        for node in my_nodes ]
+my_families = [my_tree.query_ball_point(node, HORIZON, p=2) 
+        for node in my_nodes]
 
 #Remove node indices from their own families
 [fam.remove(ind) for ind, fam in enumerate(my_families) ]
+
+#Find the maximum length of any neighborhood family
+max_family_length = max([ len(item) for item in my_families])
+
+#Pad the array with -1's, then create a mask, effectively hiding the -1's, this
+#allows us to do fast numpy operations we wouldn't otherwise be able to do. See
+#<http://stackoverflow.com/questions/14104844/broadcasting-across-an-indexed-
+#array-numpy/14124444#14124444> for details.
+my_families = ma.masked_equal([np.pad(i,(0,max_family_length-len(i)),
+    mode='constant',constant_values=-1) for i in my_families ],-1)
 
 #Initialize dummy volumes
 my_volumes = np.ones(my_number_of_nodes, dtype=np.double)
 
 #Compute reference position state of all nodes
-my_ref_pos_state_x = np.array([ my_x[my_families[i]] - my_x[i] 
-                              for i in range(my_number_of_nodes)])
-
-my_ref_pos_state_y = np.array([ my_y[my_families[i]] - my_y[i] 
-                              for i in range(my_number_of_nodes)])
+my_ref_pos_state_x = ma.masked_array(my_x[my_families] - my_x[:,None],
+        mask=my_families.mask)
+my_ref_pos_state_y = ma.masked_array(my_y[my_families] - my_y[:,None],
+        mask=my_families.mask)
 
 ##Compute reference magnitude state of all nodes
-my_ref_mag_state = np.array(my_ref_pos_state_x * my_ref_pos_state_x +
-                            my_ref_pos_state_y * my_ref_pos_state_y) ** 0.5
+my_ref_mag_state = (my_ref_pos_state_x * my_ref_pos_state_x +
+        my_ref_pos_state_y * my_ref_pos_state_y) ** 0.5
 
 #Initialize influence state
-my_influence_state = np.array([ np.ones_like(my_families[i]) 
-                              for i in range(my_number_of_nodes)])
+my_influence_state = np.ones_like(my_families) 
 
 #Compute weighted volume 
-my_weighted_volume = np.array([np.dot(my_influence_state[i]*my_ref_mag_state[i],
-    my_ref_mag_state[i]*my_volumes[my_families[i]]) 
-    for i in range(my_number_of_nodes) ])
+my_weighted_volume = (my_influence_state * my_ref_mag_state * 
+        my_ref_mag_state * my_volumes[my_families])
 
 
 #Temparary arrays
@@ -259,6 +276,8 @@ my_velocity_x = np.zeros_like(my_disp_x)
 my_velocity_y = np.zeros_like(my_disp_y)
 my_accel_x = np.zeros_like(my_disp_x)
 my_accel_y = np.zeros_like(my_disp_y)
+my_force_x = np.zeros_like(my_x)
+my_force_y = np.zeros_like(my_y)
 
 #Initialize output files
 vector_variables = ['displacement']
@@ -277,20 +296,20 @@ else:
     time_step = TIME_STEP
 
 #insert crack
-insert_crack(CRACK, my_tree, HORIZON, my_x, my_y, my_families,
-        my_influence_state)
+#insert_crack(CRACK, my_tree, HORIZON, my_x, my_y, my_families,
+        #my_influence_state)
 
 #print my_influence_state
 
 print("\nRunning...")
 if VERBOSE:
-    iterable = range(MAX_ITER)
+    loop_iterable = range(MAX_ITER)
 else:
     progress = ProgressBar()
-    iterable = progress(range(MAX_ITER))
+    loop_iterable = progress(range(MAX_ITER))
 
 #Time stepping loop
-for iteration in iterable:
+for iteration in loop_iterable:
     
     #Print a information line
     time = iteration*time_step
@@ -311,8 +330,8 @@ for iteration in iterable:
     my_velocity_y[-HORIZON*GRIDSIZE:] = 0.0
         
     #Compute the internal force
-    my_force_x = np.zeros(my_number_of_nodes,dtype=np.double)
-    my_force_y = np.zeros(my_number_of_nodes,dtype=np.double)
+    my_force_x[:] = 0.0
+    my_force_y[:] = 0.0
     
     compute_internal_force(my_force_x, my_force_y, my_x, my_y, my_disp_x, 
             my_disp_y, my_families, my_ref_mag_state, my_weighted_volume, 
