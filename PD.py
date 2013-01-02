@@ -57,11 +57,11 @@ def compute_internal_force(force_x, force_y, pos_x, pos_y, disp_x, disp_y,
     force_state_y = scalar_force_state * def_unit_state_y
 
     #Integrate nodal forces 
-    for i in range(num_nodes):
-        force_x[i] += np.sum(force_state_x[i] * volumes[families[i]])
-        force_y[i] += np.sum(force_state_y[i] * volumes[families[i]])
-        force_x[families[i]] -= force_state_x[i] * volumes[i]
-        force_y[families[i]] -= force_state_y[i] * volumes[i]
+    force_x = np.sum(force_state_x * volumes[families], axis=1)
+    force_y = np.sum(force_state_y * volumes[families], axis=1)
+
+    force_x[[families]] -= force_state_x * volumes[:,None]
+    force_y[[families]] -= force_state_y * volumes[:,None]
 
     return 
 
