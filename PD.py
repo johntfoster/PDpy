@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import math
+import pdb
 
 import numpy as np
 import numpy.ma as ma
@@ -18,8 +19,7 @@ def scalar_force_state_fun(exten_state, weighted_volume, bulk_modulus,
     """Computes the scalar force state.  This is the state-based version of a
        bond based material."""
 
-    #Apply a critical stretch damage model
-    influence_state[exten_state>0.1] = 0.0
+    #Return the force
     return 9.0 * bulk_modulus * influence_state / weighted_volume * exten_state
 
 
@@ -50,6 +50,10 @@ def compute_internal_force(force_x, force_y, pos_x, pos_y, disp_x, disp_y,
 
     #Compute scalar extension state
     exten_state = def_mag_state - ref_mag_state
+
+    #Apply a critical stretch damage model
+    influence_state[exten_state > 0.005] = 0.0
+    #print influence_state
 
     #Compute scalar force state
     scalar_force_state = scalar_force_state_fun(exten_state, weighted_volume,
@@ -200,7 +204,7 @@ def insert_crack(crack, tree, horizon, x_pos, y_pos, families,influence_state):
 ### Main Program ####
 #####################
 #INPUTS
-GRIDSIZE = 30
+GRIDSIZE = 100
 HORIZON = 3.
 TIME_STEP = 1.e-5
 #TIME_STEP = None
@@ -211,7 +215,7 @@ SAFTEY_FACTOR = 0.5
 MAX_ITER = 1000
 PLOT_DUMP_FREQ = 100
 VERBOSE = False
-CRACK = [14.5, 5., 14.5, 25.]
+CRACK = [24.5, 20., 24.5, 30.]
 
 #Set up the grid
 grid = np.mgrid[0:GRIDSIZE:1., 0:GRIDSIZE:1.]
@@ -244,6 +248,9 @@ max_family_length = max([ len(item) for item in my_families])
 #array-numpy/14124444#14124444> for details.
 my_families = ma.masked_equal([np.pad(i,(0,max_family_length-len(i)),
     mode='constant',constant_values=-1) for i in my_families ],-1)
+#Hardening the masks protects against mask removal if the entries are
+#reassigned by indexing into the array
+my_families.harden_mask()
 
 #Initialize dummy volumes
 my_volumes = np.ones(my_number_of_nodes, dtype=np.double)
@@ -259,7 +266,7 @@ my_ref_mag_state = (my_ref_pos_state_x * my_ref_pos_state_x +
         my_ref_pos_state_y * my_ref_pos_state_y) ** 0.5
 
 #Initialize influence state
-my_influence_state = np.ones_like(my_families) 
+my_influence_state = np.ones_like(my_families,dtype=np.double) 
 
 #insert crack
 insert_crack(CRACK, my_tree, HORIZON, my_x, my_y, my_families,
