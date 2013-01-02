@@ -118,20 +118,20 @@ def test_line_seg_intersect(line1,line2):
     if -1e-10 < denom < 1e-10:
         if abs(num_s) - abs(num_t) < 1e-5:
             #Lines are coincident
-            return 2
+            return True
         else:
             #Lines are parallel, but not coincident
-            return 0
+            return False
 
     s =  num_s  / denom
     t =  num_t / denom
 
     if 0.0 <= s <= 1.0 and 0.0 <= t <= 1.0: 
         #Lines intersect (or meet at endpoints)
-        return 1
+        return True
     else:
         #Lines do not intersect
-        return 0
+        return False
 
 def insert_crack(crack, tree, horizon, x_pos, y_pos, families,influence_state):
     """
@@ -179,24 +179,18 @@ def insert_crack(crack, tree, horizon, x_pos, y_pos, families,influence_state):
     #cross the crack path
     for node_index in nodes_near_crack_flat:
         #Loop over node family
-        for bond_index,end_point_index in enumerate(families[node_index]):
+        for bond_index,end_point_index in enumerate(families[node_index].compressed()):
             #Define the bond line segment as the line between the node and its
             #endpoint.
             bond_line_seg = [ x_pos[node_index], y_pos[node_index], 
                 x_pos[end_point_index], y_pos[end_point_index] ]
             #Test for intersection
-            test = test_line_seg_intersect(crack,bond_line_seg)
-            if test == 1:
+            if test_line_seg_intersect(crack,bond_line_seg):
                 #If we got to here that means we need to ``break'' the bond
-                influence_state[node_index][bond_index] = 0.0
-            #else if test == 2:
-                ##Node lies directly on the crack path, need to remove if from
-                ##the grid
-                #x_pos.remove(node_index)
-                #y_pos.remove(node_index)
-                
+                families[node_index][bond_index] = ma.masked
     
     return
+
 
 
 #####################
@@ -242,7 +236,7 @@ my_families = [my_tree.query_ball_point(node, HORIZON, p=2)
 max_family_length = max([ len(item) for item in my_families])
 
 #Pad the array with -1's, then create a mask, effectively hiding the -1's, this
-#allows us to do fast numpy operations we wouldn't otherwise be able to do. See
+#allows us to do fast Numpy operations we wouldn't otherwise be able to do. See
 #<http://stackoverflow.com/questions/14104844/broadcasting-across-an-indexed-
 #array-numpy/14124444#14124444> for details.
 my_families = ma.masked_equal([np.pad(i,(0,max_family_length-len(i)),
@@ -263,6 +257,10 @@ my_ref_mag_state = (my_ref_pos_state_x * my_ref_pos_state_x +
 
 #Initialize influence state
 my_influence_state = np.ones_like(my_families) 
+
+#insert crack
+insert_crack(CRACK, my_tree, HORIZON, my_x, my_y, my_families,
+        my_influence_state)
 
 #Compute weighted volume 
 my_weighted_volume = (my_influence_state * my_ref_mag_state * 
@@ -295,11 +293,6 @@ if TIME_STEP == None:
 else:
     time_step = TIME_STEP
 
-#insert crack
-#insert_crack(CRACK, my_tree, HORIZON, my_x, my_y, my_families,
-        #my_influence_state)
-
-#print my_influence_state
 
 print("\nRunning...")
 if VERBOSE:
