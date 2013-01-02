@@ -222,8 +222,8 @@ my_number_of_nodes = len(my_nodes)
 my_tree = scipy.spatial.KDTree(my_nodes)
 
 #Get all families
-my_families = [my_tree.query_ball_point(my_nodes[i], HORIZON, p=2, eps=0.05) 
-               for i in range(my_number_of_nodes)]
+my_families = [ my_tree.query_ball_point(node, HORIZON, p=2, eps=0.05) 
+        for node in my_nodes ]
 
 #Remove node indices from their own families
 [fam.remove(ind) for ind, fam in enumerate(my_families) ]
@@ -234,6 +234,7 @@ my_volumes = np.ones(my_number_of_nodes, dtype=np.double)
 #Compute reference position state of all nodes
 my_ref_pos_state_x = np.array([ my_x[my_families[i]] - my_x[i] 
                               for i in range(my_number_of_nodes)])
+
 my_ref_pos_state_y = np.array([ my_y[my_families[i]] - my_y[i] 
                               for i in range(my_number_of_nodes)])
 
