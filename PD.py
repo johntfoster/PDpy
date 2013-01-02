@@ -262,9 +262,6 @@ my_accel_y = np.zeros_like(my_disp_y)
 #Initialize output files
 vector_variables = ['displacement']
 outfile = Ensight('output', vector_variables)
-#outfile.write_geometry_file_time_step(my_x, my_y)
-#outfile.write_vector_variable_time_step('displacement', 
-                                       #[my_disp_x,my_disp_y], 0.0)
 
 print("PD.py version 0.1.0\n")
 print("Output variables requested:")

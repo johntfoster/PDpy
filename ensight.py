@@ -46,7 +46,7 @@ class Ensight:
                         item + ' ' + item +'.var')
 
         if self.__sv_names != None:
-            for item in self.__vv_names:
+            for item in self.__sv_names:
                 print >> self.__case_file, ('scalar per node: 1 1 ' + 
                         item + ' ' + item +'.var')
 
@@ -126,9 +126,8 @@ class Ensight:
         print >> self.__scalar_var_files[write_index], 'part'
         print >> self.__scalar_var_files[write_index], '1'
         print >> self.__scalar_var_files[write_index], 'coordinates'
-        for xyz in variable:
-            for item in xyz:
-                print >> self.__scalar_var_files[write_index], item
+        for item in variable:
+            print >> self.__scalar_var_files[write_index], item
 
         print >> self.__scalar_var_files[write_index], 'END TIME STEP'
 
