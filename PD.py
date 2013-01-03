@@ -53,7 +53,6 @@ def compute_internal_force(force_x, force_y, pos_x, pos_y, disp_x, disp_y,
 
     #Apply a critical stretch damage model
     influence_state[exten_state > 0.005] = 0.0
-    #print influence_state
 
     #Compute scalar force state
     scalar_force_state = scalar_force_state_fun(exten_state, weighted_volume,
@@ -204,18 +203,20 @@ def insert_crack(crack, tree, horizon, x_pos, y_pos, families,influence_state):
 ### Main Program ####
 #####################
 #INPUTS
-GRIDSIZE = 100
-HORIZON = 3.
+GRIDSIZE = 130
+HORIZON = 3.01
 TIME_STEP = 1.e-5
 #TIME_STEP = None
-VELOCITY = 10.
+VELOCITY = 5.
 BULK_MODULUS = 70.e9
 RHO = 7800
 SAFTEY_FACTOR = 0.5
 MAX_ITER = 1000
 PLOT_DUMP_FREQ = 100
 VERBOSE = False
-CRACK = [24.5, 20., 24.5, 30.]
+CRACKS = [[24.5, 20., 50., 45.]]
+
+print("PD.py version 0.1.0\n")
 
 #Set up the grid
 grid = np.mgrid[0:GRIDSIZE:1., 0:GRIDSIZE:1.]
@@ -228,11 +229,14 @@ my_nodes = np.array(zip(my_x, my_y), dtype=np.double)
 
 #Get length of nodes on the local rank
 my_number_of_nodes = len(my_nodes)
+#Print number of nodes
+print("Total nodes: %d" % my_number_of_nodes)
 
 #Create a kdtree to do nearest neighbor search
 my_tree = scipy.spatial.KDTree(my_nodes)
 
 #Get all families
+print("Performing nearest neighbor search... ")
 my_families = [my_tree.query_ball_point(node, HORIZON, p=2) 
         for node in my_nodes]
 
@@ -241,6 +245,8 @@ my_families = [my_tree.query_ball_point(node, HORIZON, p=2)
 
 #Find the maximum length of any neighborhood family
 max_family_length = max([ len(item) for item in my_families])
+#Print max family
+print("Maximum size of any neighborhood %d\n" % max_family_length)
 
 #Pad the array with -1's, then create a mask, effectively hiding the -1's, this
 #allows us to do fast Numpy operations we wouldn't otherwise be able to do. See
@@ -269,8 +275,13 @@ my_ref_mag_state = (my_ref_pos_state_x * my_ref_pos_state_x +
 my_influence_state = np.ones_like(my_families,dtype=np.double) 
 
 #insert crack
-insert_crack(CRACK, my_tree, HORIZON, my_x, my_y, my_families,
-        my_influence_state)
+for crack in CRACKS:
+    #Loop over and insert precracks.  The 1e-10 term is there to reduce the
+    #chance of the crack directly intersecting any node and should not affect
+    #the results at all for grid spacings on the order of 1.
+    print("Inserting precracks...\n")
+    insert_crack(np.array(crack)+1e-10, my_tree, HORIZON, my_x, my_y, 
+            my_families, my_influence_state)
 
 #Compute weighted volume 
 my_weighted_volume = (my_influence_state * my_ref_mag_state * 
@@ -293,7 +304,6 @@ vector_variables = ['displacement']
 scalar_variables = ['damage']
 outfile = Ensight('output', vector_variables, scalar_variables)
 
-print("PD.py version 0.1.0\n")
 print("Output variables requested:")
 for item in vector_variables:
     print("    " + item)
@@ -307,7 +317,7 @@ if TIME_STEP == None:
 else:
     time_step = TIME_STEP
 
-
+#Begin the main explicit time stepping loop
 print("\nRunning...")
 if VERBOSE:
     loop_iterable = range(MAX_ITER)
@@ -358,8 +368,6 @@ for iteration in loop_iterable:
     my_disp_x += my_velocity_x*time_step + 0.5*my_accel_x*time_step*time_step
     my_disp_y += my_velocity_y*time_step + 0.5*my_accel_y*time_step*time_step
 
-    #Compute the damage
-    my_damage = 1./np.mean(my_influence_state,axis=1)
 
     #Compute stable time step
     #time_step = compute_stable_time_step(my_x, my_y, my_disp_x, my_disp_y, 
@@ -370,6 +378,10 @@ for iteration in loop_iterable:
     if iteration % PLOT_DUMP_FREQ  == 0 or iteration == (MAX_ITER-1):
         if VERBOSE:
             print "Writing plot file..."
+
+        #Compute the damage
+        my_damage = 1.0 - np.mean(my_influence_state,axis=1)
+
         outfile.write_geometry_file_time_step(my_x, my_y)
         outfile.write_vector_variable_time_step('displacement', 
                                                [my_disp_x,my_disp_y], time)
