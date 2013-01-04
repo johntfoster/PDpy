@@ -203,7 +203,7 @@ def insert_crack(crack, tree, horizon, x_pos, y_pos, families,influence_state):
 ### Main Program ####
 #####################
 #INPUTS
-GRIDSIZE = 130
+GRIDSIZE = 150
 HORIZON = 3.01
 TIME_STEP = 1.e-5
 #TIME_STEP = None
@@ -211,12 +211,12 @@ VELOCITY = 5.
 BULK_MODULUS = 70.e9
 RHO = 7800
 SAFTEY_FACTOR = 0.5
-MAX_ITER = 1000
+MAX_ITER = 4000
 PLOT_DUMP_FREQ = 100
 VERBOSE = False
-CRACKS = [[24.5, 20., 50., 45.]]
+CRACKS = [[GRIDSIZE/2., -1., GRIDSIZE/2., GRIDSIZE/10.],[GRIDSIZE/2., 9*GRIDSIZE/10. , GRIDSIZE/2., GRIDSIZE+1.]]
 
-print("PD.py version 0.1.0\n")
+print("PD.py version 0.2.0\n")
 
 #Set up the grid
 grid = np.mgrid[0:GRIDSIZE:1., 0:GRIDSIZE:1.]
@@ -246,7 +246,7 @@ my_families = [my_tree.query_ball_point(node, HORIZON, p=2)
 #Find the maximum length of any neighborhood family
 max_family_length = max([ len(item) for item in my_families])
 #Print max family
-print("Maximum size of any neighborhood %d\n" % max_family_length)
+print("Maximum size of any neighborhood: %d\n" % max_family_length)
 
 #Pad the array with -1's, then create a mask, effectively hiding the -1's, this
 #allows us to do fast Numpy operations we wouldn't otherwise be able to do. See
