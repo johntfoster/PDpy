@@ -173,13 +173,16 @@ def insert_crack(crack, tree, horizon, x_pos, y_pos, families,influence_state):
     points_along_crack = zip(x_points,y_points)
 
     #Find all nodes that could possibly have bonds that cross crack path
-    nodes_near_crack = [tree.query_ball_point(point, 2.0*horizon, p=2, 
-        eps=0.05) for point in points_along_crack]
+    distances, nodes_near_crack = tree.query(points_along_crack, 
+            k=MAX_NEIGHBORS_RETURNED, eps=0.0, p=2, 
+            distance_upper_bound=2.0*horizon) 
     
     #The search above will produce duplicate neighbor nodes, make them into a
     #unique 1-dimensional list
     nodes_near_crack_flat = list(set([  elem for iterable in nodes_near_crack 
             for elem in iterable ]))
+
+    nodes_near_crack_flat.remove(tree.n)
                 
     #Loop over nodes near the crack to see if any bonds in the nodes family
     #cross the crack path
@@ -203,8 +206,8 @@ def insert_crack(crack, tree, horizon, x_pos, y_pos, families,influence_state):
 ### Main Program ####
 #####################
 #INPUTS
-GRIDSIZE = 150
-HORIZON = 3.01
+GRIDSIZE = 100
+HORIZON = 3.015
 TIME_STEP = 1.e-5
 #TIME_STEP = None
 VELOCITY = 5.
@@ -214,7 +217,8 @@ SAFTEY_FACTOR = 0.5
 MAX_ITER = 4000
 PLOT_DUMP_FREQ = 100
 VERBOSE = False
-CRACKS = [[GRIDSIZE/2., -1., GRIDSIZE/2., GRIDSIZE/10.],[GRIDSIZE/2., 9*GRIDSIZE/10. , GRIDSIZE/2., GRIDSIZE+1.]]
+CRACKS = [[GRIDSIZE/2., -1., GRIDSIZE/2., GRIDSIZE/10.],[GRIDSIZE/2., 9*GRIDSIZE/10. , GRIDSIZE/2., GRIDSIZE+1.],[5.,10,20.,40.]]
+MAX_NEIGHBORS_RETURNED = 300
 
 print("PD.py version 0.2.0\n")
 
@@ -229,42 +233,47 @@ my_nodes = np.array(zip(my_x, my_y), dtype=np.double)
 
 #Get length of nodes on the local rank
 my_number_of_nodes = len(my_nodes)
+
 #Print number of nodes
 print("Total nodes: %d" % my_number_of_nodes)
 
 #Create a kdtree to do nearest neighbor search
-my_tree = scipy.spatial.KDTree(my_nodes)
+my_tree = scipy.spatial.cKDTree(my_nodes)
 
 #Get all families
 print("Performing nearest neighbor search... ")
-my_families = [my_tree.query_ball_point(node, HORIZON, p=2) 
-        for node in my_nodes]
-
-#Remove node indices from their own families
-[fam.remove(ind) for ind, fam in enumerate(my_families) ]
-
-#Find the maximum length of any neighborhood family
-max_family_length = max([ len(item) for item in my_families])
-#Print max family
-print("Maximum size of any neighborhood: %d\n" % max_family_length)
-
-#Pad the array with -1's, then create a mask, effectively hiding the -1's, this
+my_ref_mag_state, my_families = my_tree.query(my_nodes, 
+        k=MAX_NEIGHBORS_RETURNED, eps=0.0, p=2, distance_upper_bound=HORIZON) 
+#Replace the default integers at the end of the arrays with -1's
+my_families = np.where(my_families ==  my_number_of_nodes, -1, my_families)
+#Delete node indices from their own families and create a masked array, first we
+#mask all nodes outsize horizon up to MAX_SEARCH_SIZE. Using masked arrays 
 #allows us to do fast Numpy operations we wouldn't otherwise be able to do. See
 #<http://stackoverflow.com/questions/14104844/broadcasting-across-an-indexed-
-#array-numpy/14124444#14124444> for details.
-my_families = ma.masked_equal([np.pad(i,(0,max_family_length-len(i)),
-    mode='constant',constant_values=-1) for i in my_families ],-1)
-#Hardening the masks protects against mask removal if the entries are
-#reassigned by indexing into the array
+#array-numpy/14124444> for details.
+my_families_masked = ma.masked_equal(np.delete(my_families,0,1), -1)
+#Find the maximum length of any family, we will use this to recreate the 
+#families array such that it minimizes masked entries.
+max_family_length = np.max(ma.count(my_families_masked, axis=1))
+#Print a warning if MAX_NEIGHBORS_RETURNED needs to be increased
+if max_family_length >= MAX_NEIGHBORS_RETURNED:
+    print("Warning!: The family array has at least one row with length = \
+           MAX_NEIGHBORS_RETURNED.  This constant likely should be increased")
+else:
+    print("Maximum size of any neighborhood: %d\n" % max_family_length)
+#Recast the families array to be of minimum size possible
+my_families = my_families_masked[:,:max_family_length]
+#Harden the mask. Hardening the masks protects against mask removal if the 
+#entries are reassigned by indexing into the array
 my_families.harden_mask()
 
 #Initialize dummy volumes
 my_volumes = np.ones(my_number_of_nodes, dtype=np.double)
 
 #Compute reference position state of all nodes
-my_ref_pos_state_x = ma.masked_array(my_x[my_families] - my_x[:,None],
+my_ref_pos_state_x = ma.masked_array(my_x[[my_families]] - my_x[:,None],
         mask=my_families.mask)
-my_ref_pos_state_y = ma.masked_array(my_y[my_families] - my_y[:,None],
+my_ref_pos_state_y = ma.masked_array(my_y[[my_families]] - my_y[:,None],
         mask=my_families.mask)
 
 ##Compute reference magnitude state of all nodes
@@ -275,11 +284,11 @@ my_ref_mag_state = (my_ref_pos_state_x * my_ref_pos_state_x +
 my_influence_state = np.ones_like(my_families,dtype=np.double) 
 
 #insert crack
+print("Inserting precracks...\n")
 for crack in CRACKS:
     #Loop over and insert precracks.  The 1e-10 term is there to reduce the
     #chance of the crack directly intersecting any node and should not affect
     #the results at all for grid spacings on the order of 1.
-    print("Inserting precracks...\n")
     insert_crack(np.array(crack)+1e-10, my_tree, HORIZON, my_x, my_y, 
             my_families, my_influence_state)
 
@@ -380,7 +389,7 @@ for iteration in loop_iterable:
             print "Writing plot file..."
 
         #Compute the damage
-        my_damage = 1.0 - np.mean(my_influence_state,axis=1)
+        my_damage = 1.0 - ma.mean(my_influence_state,axis=1)
 
         outfile.write_geometry_file_time_step(my_x, my_y)
         outfile.write_vector_variable_time_step('displacement', 
