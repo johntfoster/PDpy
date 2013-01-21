@@ -7,6 +7,7 @@ import pdb
 import numpy as np
 import numpy.ma as ma
 import scipy.spatial
+import matplotlib.path as path
 
 from progressbar import ProgressBar
 from ensight import Ensight
@@ -52,7 +53,7 @@ def compute_internal_force(force_x, force_y, pos_x, pos_y, disp_x, disp_y,
     exten_state = def_mag_state - ref_mag_state
 
     #Apply a critical stretch damage model
-    influence_state[exten_state > 0.005] = 0.0
+    #influence_state[exten_state > 0.005] = 0.0
 
     #Compute scalar force state
     scalar_force_state = scalar_force_state_fun(exten_state, weighted_volume,
@@ -200,6 +201,17 @@ def insert_crack(crack, tree, horizon, x_pos, y_pos, families,influence_state):
     
     return
 
+def boundary_condition_set(vertices,nodes,num_elem):
+    
+    #Create a polygon object with a list of vertices, vertices must be tuples
+    polygon = path.Path(vertices,codes=None)
+    #Returns an array with value True if point is inside polygon, False if not
+    bool_arr = polygon.contains_points(nodes,radius=1.e-10)
+    #List of the local node indices
+    node_indices =  np.arange(num_elem,dtype=np.int)
+    #Returns local node indices that are inside the polygon
+    return node_indices[bool_arr]
+
 
 
 #####################
@@ -219,6 +231,10 @@ PLOT_DUMP_FREQ = 100
 VERBOSE = False
 CRACKS = [[GRIDSIZE/2., -1., GRIDSIZE/2., GRIDSIZE/10.],[GRIDSIZE/2., 9*GRIDSIZE/10. , GRIDSIZE/2., GRIDSIZE+1.],[5.,10,20.,40.]]
 MAX_NEIGHBORS_RETURNED = 300
+BC1_POLYGON = [(0.0,0.0),(HORIZON,0.0),(HORIZON,GRIDSIZE),(0.0,GRIDSIZE),(0.0,0.0)]
+BC2_POLYGON = [(GRIDSIZE-HORIZON,0.0),(GRIDSIZE,0.0),(GRIDSIZE,GRIDSIZE),(GRIDSIZE-HORIZON,GRIDSIZE),(GRIDSIZE-HORIZON,0.0)]
+BC1_VALUE = -5.
+BC2_VALUE = 5.
 
 print("PD.py version 0.2.0\n")
 
@@ -284,13 +300,13 @@ my_ref_mag_state = (my_ref_pos_state_x * my_ref_pos_state_x +
 my_influence_state = np.ones_like(my_families,dtype=np.double) 
 
 #insert crack
-print("Inserting precracks...\n")
-for crack in CRACKS:
-    #Loop over and insert precracks.  The 1e-10 term is there to reduce the
-    #chance of the crack directly intersecting any node and should not affect
-    #the results at all for grid spacings on the order of 1.
-    insert_crack(np.array(crack)+1e-10, my_tree, HORIZON, my_x, my_y, 
-            my_families, my_influence_state)
+#print("Inserting precracks...\n")
+#for crack in CRACKS:
+    ##Loop over and insert precracks.  The 1e-10 term is there to reduce the
+    ##chance of the crack directly intersecting any node and should not affect
+    ##the results at all for grid spacings on the order of 1.
+    #insert_crack(np.array(crack)+1e-10, my_tree, HORIZON, my_x, my_y, 
+            #my_families, my_influence_state)
 
 #Compute weighted volume 
 my_weighted_volume = (my_influence_state * my_ref_mag_state * 
@@ -319,6 +335,10 @@ for item in vector_variables:
 for item in scalar_variables:
     print("    " + item)
 
+#Find local nodes where boundary condtions should be applied
+bc1_node_set = boundary_condition_set(BC1_POLYGON,my_nodes,my_number_of_nodes)
+bc2_node_set = boundary_condition_set(BC2_POLYGON,my_nodes,my_number_of_nodes)
+
 if TIME_STEP == None:
     time_step = SAFTEY_FACTOR*compute_stable_time_step(my_families, 
             my_ref_mag_state, my_volumes, my_number_of_nodes, BULK_MODULUS,
@@ -345,15 +365,15 @@ for iteration in loop_iterable:
               " , sim time = " + str(time))
 
     #Enforce boundary conditions
-    my_disp_x[:HORIZON*GRIDSIZE] = -time*VELOCITY 
-    my_disp_y[:HORIZON*GRIDSIZE] = 0.0
-    my_velocity_x[:HORIZON*GRIDSIZE] = -VELOCITY 
-    my_velocity_y[:HORIZON*GRIDSIZE] = 0.0
+    my_disp_x[[bc1_node_set]] = time*BC1_VALUE
+    my_disp_y[[bc1_node_set]]= 0.0
+    my_velocity_x[[bc1_node_set]] = BC1_VALUE
+    my_velocity_y[[bc1_node_set]] = 0.0
     #
-    my_disp_x[-HORIZON*GRIDSIZE:] = time*VELOCITY 
-    my_disp_y[-HORIZON*GRIDSIZE:] = 0.0
-    my_velocity_x[-HORIZON*GRIDSIZE:] = VELOCITY 
-    my_velocity_y[-HORIZON*GRIDSIZE:] = 0.0
+    my_disp_x[[bc2_node_set]] = time*BC2_VALUE
+    my_disp_y[[bc2_node_set]]= 0.0
+    my_velocity_x[[bc2_node_set]] = BC2_VALUE
+    my_velocity_y[[bc2_node_set]] = 0.0
         
     #Compute the internal force
     my_force_x[:] = 0.0
