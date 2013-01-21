@@ -1,70 +1,141 @@
 
 import os
+import socket
 
 class Ensight:
     
     def __init__(self, filename='output', vector_var_names=None,
-            scalar_var_names=None):
+            scalar_var_names=None,comm=None,paraview_path=None):
 
-        directory = './ensight_files/'
-        if not os.path.exists(directory):
-            os.makedirs(directory)
+        if comm != None and comm.NumProc() != 1:
 
-        self.__geo_file = open(directory+filename+'.geo','w')
-        
-        self.__vv_names = vector_var_names
-        self.__sv_names = scalar_var_names
-        self.__fname = filename
-        self.times = []
+            rank = comm.MyPID()
+            size = comm.NumProc()
 
-        if self.__vv_names != None:
-            self.__vector_var_files = [ open(directory+afilename+'.var','w') 
-                    for afilename in self.__vv_names ]
-        
-        if self.__sv_names != None:
-            self.__scalar_var_files = [ open(directory+afilename+'.var','w') 
-                    for afilename in self.__sv_names ]
+            directory = './ensight_files/'
+
+            if rank == 0:
+                if not os.path.exists(directory):
+                    os.makedirs(directory)
+
+            self.__geo_file = open(directory+filename+'.'+str(rank)+'.geo','w')
+            
+            self.__vv_names = vector_var_names
+            self.__sv_names = scalar_var_names
+            self.__fname = filename
+            self.times = []
+
+            if self.__vv_names != None:
+                self.__vector_var_files = [ open(directory+afilename+'.'+str(rank)+'.vec','w') 
+                        for afilename in self.__vv_names ]
+            
+            if self.__sv_names != None:
+                self.__scalar_var_files = [ open(directory+afilename+'.'+str(rank)+'.scl','w') 
+                        for afilename in self.__sv_names ]
+
+            self.__write_sos_file(comm,paraview_path)
+
+        else:
+
+            directory = './ensight_files/'
+            if not os.path.exists(directory):
+                os.makedirs(directory)
+
+            self.__geo_file = open(directory+filename+'.geo','w')
+            
+            self.__vv_names = vector_var_names
+            self.__sv_names = scalar_var_names
+            self.__fname = filename
+            self.times = []
+
+            if self.__vv_names != None:
+                self.__vector_var_files = [ open(directory+afilename+'.vec','w') 
+                        for afilename in self.__vv_names ]
+            
+            if self.__sv_names != None:
+                self.__scalar_var_files = [ open(directory+afilename+'.scl','w') 
+                        for afilename in self.__sv_names ]
+
 
         return
 
 
-    def write_case_file(self):
+    def write_case_file(self,comm=None):
         """Initialize Ensight case file"""
         
-        directory = './ensight_files/'
-        self.__case_file = open(directory+self.__fname+'.case','w')
+        if comm != None and comm.NumProc() != 1:
 
-        print >> self.__case_file, 'FORMAT'
-        print >> self.__case_file, 'type: ensight gold'
-        print >> self.__case_file, 'GEOMETRY'
-        print >> self.__case_file, 'model: 1 1 ' + self.__fname + '.geo'
-        print >> self.__case_file, 'VARIABLE'
+            rank = comm.MyPID()
+            size = comm.NumProc()
 
-        if self.__vv_names != None:
-            for item in self.__vv_names:
-                print >> self.__case_file, ('vector per node: 1 1 ' + 
-                        item + ' ' + item +'.var')
 
-        if self.__sv_names != None:
-            for item in self.__sv_names:
-                print >> self.__case_file, ('scalar per node: 1 1 ' + 
-                        item + ' ' + item +'.var')
+            directory = './ensight_files/'
+            self.__case_file = open(directory+self.__fname+'.'+str(rank)+'.case','w')
 
-        print >> self.__case_file, 'TIME'
-        print >> self.__case_file, 'time set: 1'
-        print >> self.__case_file, 'number of steps: ' + str(len(self.times))
-        print >> self.__case_file, 'time values: '
-        for item in self.times:
-            print >> self.__case_file, item
-        print >> self.__case_file, 'FILE'
-        print >> self.__case_file, 'file set: 1'
-        print >> self.__case_file, 'number of steps: ' + str(len(self.times))
+            print >> self.__case_file, 'FORMAT'
+            print >> self.__case_file, 'type: ensight gold'
+            print >> self.__case_file, 'GEOMETRY'
+            print >> self.__case_file, 'model: 1 1 ' + self.__fname+'.'+str(rank)+'.geo'
+            print >> self.__case_file, 'VARIABLE'
 
-        self.__case_file.close()
+            if self.__vv_names != None:
+                for item in self.__vv_names:
+                    print >> self.__case_file, ('vector per node: 1 1 ' + 
+                            item + ' ' + item +'.'+str(rank)+'.vec')
+
+            if self.__sv_names != None:
+                for item in self.__sv_names:
+                    print >> self.__case_file, ('scalar per node: 1 1 ' + 
+                            item + ' ' + item +'.'+str(rank)+'.scl')
+
+            print >> self.__case_file, 'TIME'
+            print >> self.__case_file, 'time set: 1'
+            print >> self.__case_file, 'number of steps: ' + str(len(self.times))
+            print >> self.__case_file, 'time values: '
+            for item in self.times:
+                print >> self.__case_file, item
+            print >> self.__case_file, 'FILE'
+            print >> self.__case_file, 'file set: 1'
+            print >> self.__case_file, 'number of steps: ' + str(len(self.times))
+
+            self.__case_file.close()
+
+        else:
+            
+            directory = './ensight_files/'
+            self.__case_file = open(directory+self.__fname+'.case','w')
+
+            print >> self.__case_file, 'FORMAT'
+            print >> self.__case_file, 'type: ensight gold'
+            print >> self.__case_file, 'GEOMETRY'
+            print >> self.__case_file, 'model: 1 1 ' + self.__fname + '.geo'
+            print >> self.__case_file, 'VARIABLE'
+
+            if self.__vv_names != None:
+                for item in self.__vv_names:
+                    print >> self.__case_file, ('vector per node: 1 1 ' + 
+                            item + ' ' + item +'.vec')
+
+            if self.__sv_names != None:
+                for item in self.__sv_names:
+                    print >> self.__case_file, ('scalar per node: 1 1 ' + 
+                            item + ' ' + item +'.scl')
+
+            print >> self.__case_file, 'TIME'
+            print >> self.__case_file, 'time set: 1'
+            print >> self.__case_file, 'number of steps: ' + str(len(self.times))
+            print >> self.__case_file, 'time values: '
+            for item in self.times:
+                print >> self.__case_file, item
+            print >> self.__case_file, 'FILE'
+            print >> self.__case_file, 'file set: 1'
+            print >> self.__case_file, 'number of steps: ' + str(len(self.times))
+
+            self.__case_file.close()
 
         return
 
-    #Create Ensight Format Case file
+    #Create Ensight Format geometry file
     def write_geometry_file_time_step(self, x, y):
         """ Initialize Ensight geometry file"""
 
@@ -155,5 +226,31 @@ class Ensight:
 
         return
 
+    def __write_sos_file(self,comm=None,paraview_path=None):
 
+        if comm != None:
+            
+            rank = comm.MyPID()
+            size = comm.NumProc()
 
+            directory = './ensight_files/'
+
+            if rank == 0:
+                with open(directory+self.__fname+'.sos','w') as ff:
+
+                    print >> ff, "FORMAT"
+                    print >> ff, "type: master_server gold"
+                    print >> ff, "SERVERS"
+                    print >> ff, "number of servers: " + str(size) 
+
+                    for server_number in range(size):
+
+                        print >> ff, "#Server " + str(server_number)
+                        print >> ff, "machine id: " + socket.gethostname()
+
+                        if paraview_path != None:
+                            print >> ff, "execuatable: " + paraview_path
+                        else:
+                            print >> ff, "execuatable: paraview"
+                        print >> ff, ("casefile: " + self.__fname + '.' 
+                                + str(server_number) + '.case')
