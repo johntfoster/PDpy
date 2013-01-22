@@ -316,10 +316,7 @@ if __name__ == "__main__":
     #balancing
     parameter_list = Teuchos.ParameterList()
     parameter_list.set("Partitioning Method","RCB")
-    if VERBOSE:
-        parameter_sublist = parameter_list.sublist("ZOLTAN")
-        parameter_sublist.set("DEBUG_LEVEL", "5")
-    else:
+    if not VERBOSE:
         parameter_sublist = parameter_list.sublist("ZOLTAN")
         parameter_sublist.set("DEBUG_LEVEL", "0")
     #Create a partitioner to load balance the grid
@@ -434,7 +431,7 @@ if __name__ == "__main__":
             viz_path=VIZ_PATH)
 
     if rank == 0: 
-        print("Output variables requested:")
+        print("\nOutput variables requested:")
         for item in vector_variables:
             print("    " + item)
         for item in scalar_variables:
