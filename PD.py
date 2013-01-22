@@ -377,7 +377,7 @@ if __name__ == "__main__":
     my_y_worker.Import(my_y, worker_importer, Epetra.Insert)
     #Convert the global node ids in the family array to local ids
     my_families_local = np.array([my_worker_map.LID(i) 
-        for i in my_families.data.flatten()])
+        for i in my_families.flatten()])
     #Mask local family array
     my_families_local.shape = (len(my_families),-1)
     my_families_local = ma.masked_equal(my_families_local,-1)
@@ -385,9 +385,9 @@ if __name__ == "__main__":
 
     #Compute reference position state of all nodes
     my_ref_pos_state_x = ma.masked_array(my_x_worker[[my_families_local]] - 
-            my_x_worker[:my_num_owned,None], mask=my_families.mask)
+            my_x_worker[:my_num_owned,None], mask=my_families_local.mask)
     my_ref_pos_state_y = ma.masked_array(my_y_worker[[my_families_local]] - 
-            my_y_worker[:my_num_owned,None], mask=my_families.mask)
+            my_y_worker[:my_num_owned,None], mask=my_families_local.mask)
 
     ###Compute reference magnitude state of all nodes
     my_ref_mag_state = (my_ref_pos_state_x * my_ref_pos_state_x +
