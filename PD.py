@@ -213,18 +213,18 @@ def insert_crack(crack, tree, horizon, x_pos, y_pos, families):
     return
 
 
-def boundary_condition_set(vertices,nodes,node_map):
+def boundary_condition_set(vertices,nodes,unbalanced_map):
     
     #Create a polygon object with a list of vertices, vertices must be tuples
     polygon = path.Path(vertices,codes=None)
     #Returns an array with value True if point is inside polygon, False if not
     bool_arr = polygon.contains_points(nodes,radius=1.e-10)
     #List of the local node indices
-    node_indices =  np.arange(node_map.NumMyElements(),dtype=np.int)
+    node_indices =  np.arange(unbalanced_map.NumMyElements(),dtype=np.int)
     #Returns local node indices that are inside the polygon
     return node_indices[bool_arr]
 
-#This line begins the main program.  This is not nescarry, but can be helpfull
+#This line begins the main program.  This is not nescarry, but can be helpful
 #if we want to load this file as a module from another Python script
 if __name__ == "__main__":
 
@@ -242,33 +242,42 @@ if __name__ == "__main__":
     MAX_ITER = 4000
     PLOT_DUMP_FREQ = 100
     VERBOSE = True
-    CRACKS = [[GRIDSIZE/2., -1., GRIDSIZE/2., GRIDSIZE/10.],[GRIDSIZE/2., 9*GRIDSIZE/10. , GRIDSIZE/2., GRIDSIZE+1.],[5.,10,20.,40.]]
+    CRACKS = [[GRIDSIZE/2., -1., GRIDSIZE/2., GRIDSIZE/10.],[GRIDSIZE/2., 
+        9*GRIDSIZE/10. , GRIDSIZE/2., GRIDSIZE+1.],[5.,10,20.,40.]]
     MAX_NEIGHBORS_RETURNED = 300
-    BC1_POLYGON = [(0.0,0.0),(HORIZON,0.0),(HORIZON,GRIDSIZE),(0.0,GRIDSIZE),(0.0,0.0)]
-    BC2_POLYGON = [(GRIDSIZE-HORIZON,0.0),(GRIDSIZE,0.0),(GRIDSIZE,GRIDSIZE),(GRIDSIZE-HORIZON,GRIDSIZE),(GRIDSIZE-HORIZON,0.0)]
+    BC1_POLYGON = [(0.0,0.0),(HORIZON,0.0),(HORIZON,GRIDSIZE),
+            (0.0,GRIDSIZE),(0.0,0.0)]
+    BC2_POLYGON = [(GRIDSIZE-HORIZON,0.0),(GRIDSIZE,0.0),(GRIDSIZE,GRIDSIZE),
+            (GRIDSIZE-HORIZON,GRIDSIZE),(GRIDSIZE-HORIZON,0.0)]
     BC1_VALUE = -5.
     BC2_VALUE = 5.
     VIZ_PATH='/Applications/paraview.app/Contents/MacOS/paraview'
 
-    if rank == 0: print("PD.py version 0.3.0\n")
+    #Print version statement
+    if rank == 0: print("PD.py version 0.4.0\n")
 
     #Set up the grid
     global_number_of_nodes = GRIDSIZE*GRIDSIZE
 
+    #Populate the grid on the rank 0 processor only
     if rank == 0:
+        #Create grid
         grid = np.mgrid[0:GRIDSIZE:1.,0:GRIDSIZE:1]
 
-        nodes = np.array(zip(grid[0].ravel(), grid[1].ravel()), dtype=np.double)
+        #Create x,y tuple of node positions
+        nodes = np.array(zip(grid[0].ravel(), grid[1].ravel()), 
+                dtype=np.double)
         
         #Create a kdtree to do nearest neighbor search
         tree = scipy.spatial.cKDTree(nodes)
 
         #Get all families
-        _, families = tree.query(nodes, k=100, eps=0.0, p=2, distance_upper_bound=3.015) 
+        _, families = tree.query(nodes, k=100, eps=0.0, p=2, 
+                distance_upper_bound=HORIZON) 
         #Replace the default integers at the end of the arrays with -1's
         families = np.delete(np.where(families ==  tree.n, -1, families),0,1)
-        #Find the maximum length of any family, we will use this to recreate the 
-        #families array such that it minimizes masked entries.
+        #Find the maximum length of any family, we will use this to recreate 
+        #the families array such that it minimizes masked entries.
         max_family_length = np.max((families != -1).sum(axis=1))
         #Recast the families array to be of minimum size possible
         families = families[:,:max_family_length]
@@ -284,51 +293,60 @@ if __name__ == "__main__":
                     nodes[:,1], families)
         
     else:
+        #Setup empty data on other ranks
         max_family_length = 0
         nodes = np.array([],dtype=np.double)
         families = np.array([],dtype=np.double)
-        
-    node_map = Epetra.Map(global_number_of_nodes, len(nodes), 0, comm)
+    
+    #Create node map with all the data on the rank 0 processor
+    unbalanced_map = Epetra.Map(global_number_of_nodes, len(nodes), 0, comm)
 
-    my_nodes = Epetra.MultiVector(node_map, 2)
+    #Create and populate distributed Epetra vector to the hold the unbalanced
+    #data.
+    my_nodes = Epetra.MultiVector(unbalanced_map, 2)
     my_nodes[:] = nodes.T
-
+    #Create and populate an Epetra mulitvector to store the famlies data
     max_family_length = comm.MaxAll(max_family_length)
-    my_families = Epetra.MultiVector(node_map, max_family_length)
+    my_families = Epetra.MultiVector(unbalanced_map, max_family_length)
     my_families[:] = families.T
 
+    #Load balance
     if rank == 0: print "Load balancing...\n"
-
+    #Create Teuchos parameter list to pass parameter to ZOLTAN for load
+    #balancing
     parameter_list = Teuchos.ParameterList()
     parameter_list.set("Partitioning Method","RCB")
     if VERBOSE:
         parameter_sublist = parameter_list.sublist("ZOLTAN")
-        parameter_sublist.set("DEBUG_LEVEL", "0")
+        parameter_sublist.set("DEBUG_LEVEL", "5")
     else:
         parameter_sublist = parameter_list.sublist("ZOLTAN")
         parameter_sublist.set("DEBUG_LEVEL", "0")
-
+    #Create a partitioner to load balance the grid
     partitioner = Isorropia.Epetra.Partitioner(my_nodes, parameter_list)
+    #And a redistributer
     redistributer = Isorropia.Epetra.Redistributor(partitioner)
-
+    #Redistribute nodes
     my_nodes_balanced = redistributer.redistribute(my_nodes)
-
+    #The new load balanced map
     balanced_map = my_nodes_balanced.Map()
-
-    importer = Epetra.Import(balanced_map, node_map)
-    exporter = Epetra.Export(balanced_map, node_map)
-
+    #Create importer and exporters to move data between banlanced and 
+    #unbalanced maps
+    importer = Epetra.Import(balanced_map, unbalanced_map)
+    exporter = Epetra.Export(balanced_map, unbalanced_map)
+    #Create distributed vectors to store the balanced node positions
     my_x = Epetra.Vector(balanced_map)
     my_y = Epetra.Vector(balanced_map)
     my_families_balanced = Epetra.MultiVector(balanced_map, max_family_length)
-
+    #Import the balanced node positions and family information
     my_x.Import(my_nodes[0],importer,Epetra.Insert)
     my_y.Import(my_nodes[1],importer,Epetra.Insert)
     my_families_balanced.Import(my_families,importer,Epetra.Insert)
-
-    my_families = ma.masked_equal(np.array(my_families_balanced.T,dtype=np.int32),-1)
-
-    #Create a flattened list of all family global indices (locally owned + ghosts)
+    #Mask the dummy entries (i.e. -1's) in the family array
+    my_families = ma.masked_equal(np.array(my_families_balanced.T,
+        dtype=np.int32),-1)
+    #Create a flattened list of all family global indices (locally owned 
+    #+ ghosts)
     my_global_ids_required = np.unique(my_families.compressed())
     #Create a list of locally owned global ids
     my_owned_ids = np.array(balanced_map.MyGlobalElements())
@@ -341,28 +359,27 @@ if __name__ == "__main__":
     my_num_ghosts = len(my_ghost_ids)
     #Get total length of worker array, this is len(owned) + len(ghosts)
     #summed over all processors
-    length_of_global_worker_arr = comm.SumAll(len(my_owned_ids) + len(my_ghost_ids))
+    length_of_global_worker_arr = comm.SumAll(len(my_owned_ids) 
+            + len(my_ghost_ids))
     #Worker ids
     my_worker_ids = np.concatenate((my_owned_ids,my_ghost_ids))
     ##Create the map that will be used by worker vectors
     my_worker_map = Epetra.Map(length_of_global_worker_arr, 
             my_worker_ids, 0, comm)
-
+    #Create the worker import/export operators to move data between the grid
+    #data and the worker data
     worker_importer = Epetra.Import(my_worker_map, balanced_map)
     worker_exporter = Epetra.Export(my_worker_map, balanced_map)
-
     #Create worker vectors
     my_x_worker = Epetra.Vector(my_worker_map)
     my_y_worker = Epetra.Vector(my_worker_map)
-    #my_volumes_worker = Epetra.Vector(my_worker_map)
-
     #Import the needed components for local operations
     my_x_worker.Import(my_x, worker_importer, Epetra.Insert)
     my_y_worker.Import(my_y, worker_importer, Epetra.Insert)
-
+    #Convert the global node ids in the family array to local ids
     my_families_local = np.array([my_worker_map.LID(i) 
         for i in my_families.data.flatten()])
-
+    #Mask local family array
     my_families_local.shape = (len(my_families),-1)
     my_families_local = ma.masked_equal(my_families_local,-1)
     my_families_local.harden_mask()
