@@ -5,7 +5,7 @@ import socket
 class Ensight:
     
     def __init__(self, filename='output', vector_var_names=None,
-            scalar_var_names=None,comm=None,paraview_path=None):
+            scalar_var_names=None,comm=None,viz_path=None):
 
         if comm != None and comm.NumProc() != 1:
 
@@ -33,7 +33,7 @@ class Ensight:
                 self.__scalar_var_files = [ open(directory+afilename+'.'+str(rank)+'.scl','w') 
                         for afilename in self.__sv_names ]
 
-            self.__write_sos_file(comm,paraview_path)
+            self.__write_sos_file(comm,viz_path)
 
         else:
 
@@ -226,7 +226,7 @@ class Ensight:
 
         return
 
-    def __write_sos_file(self,comm=None,paraview_path=None):
+    def __write_sos_file(self,comm=None,viz_path=None):
 
         if comm != None:
             
@@ -248,8 +248,8 @@ class Ensight:
                         print >> ff, "#Server " + str(server_number)
                         print >> ff, "machine id: " + socket.gethostname()
 
-                        if paraview_path != None:
-                            print >> ff, "execuatable: " + paraview_path
+                        if viz_path != None:
+                            print >> ff, "execuatable: " + viz_path
                         else:
                             print >> ff, "execuatable: paraview"
                         print >> ff, ("casefile: " + self.__fname + '.' 

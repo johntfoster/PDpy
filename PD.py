@@ -42,7 +42,6 @@ def compute_internal_force(force_x, force_y, pos_x, pos_y, disp_x, disp_y,
     def_x = pos_x + disp_x
     def_y = pos_y + disp_y
 
-
     #Compute deformation state
     def_state_x = ma.masked_array(def_x[families] - def_x[:num_owned,None],
             mask=families.mask)
@@ -72,17 +71,7 @@ def compute_internal_force(force_x, force_y, pos_x, pos_y, disp_x, disp_y,
     force_state_y = scalar_force_state * def_unit_state_y
 
     #Integrate nodal forces 
-    #Sum the force contribution from i nodes from j, the sum() operation 
-    #automatically excludes the masked entries.  The bincount()
-    #operation is a trick to keep it fast in Numpy.  See:
-    #<http://stackoverflow.com/questions/9790436/numpy-accumulating-one-array-
-    #in-another-using-index-array> for details
-    #tmp_x = np.bincount(range(len(force_state_x)), 
-            #np.sum(force_state_x * volumes[families], axis=1))
-    #tmp_y = np.bincount(range(len(force_state_y)), 
-            #np.sum(force_state_y * volumes[families], axis=1))
-    #force_x[:len(tmp_x)] += tmp_x
-    #force_y[:len(tmp_y)] += tmp_y
+    #Sum the force contribution from j nodes to i node
     force_x[:num_owned] += np.sum(force_state_x * volumes[families],axis=1)
     force_y[:num_owned] += np.sum(force_state_y * volumes[families],axis=1)
 
@@ -99,7 +88,7 @@ def compute_internal_force(force_x, force_y, pos_x, pos_y, disp_x, disp_y,
 
     return 
 
-
+#Compute stable time step function
 def compute_stable_time_step(families, ref_mag_state, volumes, num_nodes, 
         bulk_modulus,rho,horizon):
 
@@ -114,7 +103,7 @@ def compute_stable_time_step(families, ref_mag_state, volumes, num_nodes,
 
     return np.amin(nodal_min_time_step)
 
-
+#Helper function that tests to see if two lines intersect
 def test_line_seg_intersect(line1,line2):
     """Tests to see if two lines segments intersect.  The lines are defined as:
 
@@ -125,6 +114,7 @@ def test_line_seg_intersect(line1,line2):
     #See http://stackoverflow.com/questions/563198/how-do-you-detect-where-
     #two-line-segments-intersect for algorithm details
     
+    #Read in individual point x,y positions from arguments
     p0_x, p0_y, p1_x, p1_y = line1
     p2_x, p2_y, p3_x, p3_y = line2
 
@@ -157,6 +147,7 @@ def test_line_seg_intersect(line1,line2):
         #Lines do not intersect
         return False
 
+#Inserts a crack by removing neighbors from family lists
 def insert_crack(crack, tree, horizon, x_pos, y_pos, families):
     """
        Inserts crack by setting influence_state to zero for bonds that cross
@@ -197,10 +188,13 @@ def insert_crack(crack, tree, horizon, x_pos, y_pos, families):
     
     #The search above will produce duplicate neighbor nodes, make them into a
     #unique 1-dimensional list
-    nodes_near_crack_flat = list(set([  elem for iterable in nodes_near_crack 
-            for elem in iterable ]))
-
-    nodes_near_crack_flat.remove(tree.n)
+    #nodes_near_crack_flat = list(set([  elem for iterable in nodes_near_crack 
+            #for elem in iterable ]))
+    nodes_near_crack_flat = np.array(np.unique(nodes_near_crack),dtype=np.int)
+    
+    #Remove the dummy entries
+    nodes_near_crack_flat = nodes_near_crack_flat[nodes_near_crack_flat != 
+            tree.n]
                 
     #Loop over nodes near the crack to see if any bonds in the nodes family
     #cross the crack path
@@ -230,6 +224,8 @@ def boundary_condition_set(vertices,nodes,node_map):
     #Returns local node indices that are inside the polygon
     return node_indices[bool_arr]
 
+#This line begins the main program.  This is not nescarry, but can be helpfull
+#if we want to load this file as a module from another Python script
 if __name__ == "__main__":
 
     #####################
@@ -252,7 +248,7 @@ if __name__ == "__main__":
     BC2_POLYGON = [(GRIDSIZE-HORIZON,0.0),(GRIDSIZE,0.0),(GRIDSIZE,GRIDSIZE),(GRIDSIZE-HORIZON,GRIDSIZE),(GRIDSIZE-HORIZON,0.0)]
     BC1_VALUE = -5.
     BC2_VALUE = 5.
-    PARAVIEW_PATH='/Applications/paraview.app/Contents/MacOS/paraview'
+    VIZ_PATH='/Applications/paraview.app/Contents/MacOS/paraview'
 
     if rank == 0: print("PD.py version 0.3.0\n")
 
@@ -419,7 +415,7 @@ if __name__ == "__main__":
     scalar_variables = ['damage']
     #Instantiate output file object
     outfile = Ensight('output', vector_variables, scalar_variables, comm, 
-            paraview_path=PARAVIEW_PATH)
+            viz_path=VIZ_PATH)
 
     if rank == 0: 
         print("Output variables requested:")
@@ -455,10 +451,10 @@ if __name__ == "__main__":
         #Set current time
         time = iteration*time_step
 
-        #Print a information line
+        #Print an information line
         if VERBOSE and rank ==0:
-            print("iter = " + str(iteration) + " , time step = " + str(time_step) +
-                  " , sim time = " + str(time))
+            print("iter = " + str(iteration) + " , time step = " + 
+                    str(time_step) + " , sim time = " + str(time))
 
         #Enforce boundary conditions
         my_disp_x[[bc1_local_node_set]] = time*BC1_VALUE
