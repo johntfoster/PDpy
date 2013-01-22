@@ -342,12 +342,11 @@ if __name__ == "__main__":
     my_x.Import(my_nodes[0],importer,Epetra.Insert)
     my_y.Import(my_nodes[1],importer,Epetra.Insert)
     my_families_balanced.Import(my_families,importer,Epetra.Insert)
-    #Mask the dummy entries (i.e. -1's) in the family array
-    my_families = ma.masked_equal(np.array(my_families_balanced.T,
-        dtype=np.int32),-1)
+    #Convert to integer data type for indexing purposes later
+    my_families = np.array(my_families_balanced.T, dtype=np.int32)
     #Create a flattened list of all family global indices (locally owned 
     #+ ghosts)
-    my_global_ids_required = np.unique(my_families.compressed())
+    my_global_ids_required = np.unique(my_families[my_families != -1])
     #Create a list of locally owned global ids
     my_owned_ids = np.array(balanced_map.MyGlobalElements())
     #And its length
