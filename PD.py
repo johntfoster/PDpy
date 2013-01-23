@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import math
+import sys
 
 import numpy as np
 import numpy.ma as ma
@@ -244,6 +245,8 @@ if __name__ == "__main__":
     MAX_ITER = 4000
     PLOT_DUMP_FREQ = 100
     VERBOSE = False
+    if sys.argv[-1] == '-v':
+        VERBOSE = True
     CRACKS = [[GRIDSIZE/2., -1., GRIDSIZE/2., GRIDSIZE/10.],[GRIDSIZE/2., 
         9*GRIDSIZE/10. , GRIDSIZE/2., GRIDSIZE+1.],[5.,10,20.,40.]]
     MAX_NEIGHBORS_RETURNED = 300
