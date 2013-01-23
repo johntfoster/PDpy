@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import math
-import pdb
 
 import numpy as np
 import numpy.ma as ma
@@ -10,6 +9,9 @@ import scipy.spatial
 import matplotlib.path as path
 
 from progressbar import ProgressBar
+from progressbar import Percentage
+from progressbar import Bar
+from progressbar import RotatingMarker
 from ensight import Ensight
 
 from PyTrilinos import Epetra
@@ -241,7 +243,7 @@ if __name__ == "__main__":
     SAFTEY_FACTOR = 0.5
     MAX_ITER = 4000
     PLOT_DUMP_FREQ = 100
-    VERBOSE = True
+    VERBOSE = False
     CRACKS = [[GRIDSIZE/2., -1., GRIDSIZE/2., GRIDSIZE/10.],[GRIDSIZE/2., 
         9*GRIDSIZE/10. , GRIDSIZE/2., GRIDSIZE+1.],[5.,10,20.,40.]]
     MAX_NEIGHBORS_RETURNED = 300
@@ -366,7 +368,7 @@ if __name__ == "__main__":
     #data and the worker data
     worker_importer = Epetra.Import(my_worker_map, balanced_map)
     worker_exporter = Epetra.Export(my_worker_map, balanced_map)
-    #Create worker vectors
+    #Create worker vectors (owned + ghosts)
     my_x_worker = Epetra.Vector(my_worker_map)
     my_y_worker = Epetra.Vector(my_worker_map)
     #Import the needed components for local operations
@@ -413,14 +415,10 @@ if __name__ == "__main__":
     my_force_y_worker = Epetra.Vector(my_worker_map)
 
     #Temparary arrays
-    #my_disp_x = np.zeros_like(my_x)
-    #my_disp_y = np.zeros_like(my_y)
     my_velocity_x = np.zeros_like(my_disp_x)
     my_velocity_y = np.zeros_like(my_disp_y)
     my_accel_x = np.zeros_like(my_disp_x)
     my_accel_y = np.zeros_like(my_disp_y)
-    #my_force_x = np.zeros_like(my_x)
-    #my_force_y = np.zeros_like(my_y)
     my_damage = np.zeros_like(my_x)
 
     #Initialize output files
@@ -431,11 +429,12 @@ if __name__ == "__main__":
             viz_path=VIZ_PATH)
 
     if rank == 0: 
-        print("\nOutput variables requested:")
+        print("Output variables requested:\n")
         for item in vector_variables:
             print("    " + item)
         for item in scalar_variables:
             print("    " + item)
+        print(" ")
 
     #Find local nodes where boundary condtions should be applied
     bc1_local_node_set = boundary_condition_set(BC1_POLYGON,zip(my_x.ravel(),my_y.ravel()),balanced_map)
@@ -449,17 +448,18 @@ if __name__ == "__main__":
     else:
         time_step = TIME_STEP
 
-    #Begin the main explicit time stepping loop, the verbose variable sets either
+    #Begin the main explicit time stepping loop, the VERBOSE variable sets either
     #a progress bar or verbose output here.
-    if rank == 0: print("\nRunning...")
-    if VERBOSE:
-        loop_iterable = range(MAX_ITER)
-    else:
-        progress = ProgressBar()
-        loop_iterable = progress(range(MAX_ITER))
+    if rank == 0: 
+        if VERBOSE:
+            print("Running...")
+        else:
+            #Set up the progress bar
+            widgets = ['Running: ', Percentage(), ' ', Bar(marker=RotatingMarker())]
+            progress = ProgressBar(widgets=widgets, maxval=MAX_ITER).start()
 
     #Time stepping loop
-    for iteration in loop_iterable:
+    for iteration in range(MAX_ITER):
         
         #Set current time
         time = iteration*time_step
@@ -537,5 +537,12 @@ if __name__ == "__main__":
             outfile.append_time_step(time)
             outfile.write_case_file(comm)
 
+        #Update the progress bar
+        if not VERBOSE and rank == 0:
+            progress.update(iteration + 1)
+
 
     outfile.finalize()
+    #Wrap up the progress bar printing
+    if not VERBOSE and rank == 0:
+        progress.finish()
