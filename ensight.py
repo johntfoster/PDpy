@@ -13,10 +13,8 @@ class Ensight:
             size = comm.NumProc()
 
             directory = './ensight_files/'
-
-            if rank == 0:
-                if not os.path.exists(directory):
-                    os.makedirs(directory)
+            if not os.path.exists(directory):
+                os.makedirs(directory)
 
             self.__geo_file = open(directory+filename+'.'+str(rank)+'.geo','w')
             

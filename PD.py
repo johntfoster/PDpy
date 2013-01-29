@@ -430,7 +430,7 @@ if __name__ == "__main__":
     #Instantiate output file object
     outfile = Ensight('output', vector_variables, scalar_variables, comm, 
             viz_path=VIZ_PATH)
-
+    #Print the temporary outpu arrays
     if rank == 0: 
         print("Output variables requested:\n")
         for item in vector_variables:
@@ -483,7 +483,7 @@ if __name__ == "__main__":
         my_velocity_x[[bc2_local_node_set]] = BC2_VALUE
         my_velocity_y[[bc2_local_node_set]] = 0.0
             
-        #Compute the internal force
+        #Clear the internal force vectors
         my_force_x[:] = 0.0
         my_force_y[:] = 0.0
         my_force_x_worker[:] = 0.0
@@ -494,6 +494,7 @@ if __name__ == "__main__":
         my_disp_x_worker.Import(my_disp_x,worker_importer,Epetra.Insert)
         my_disp_y_worker.Import(my_disp_y,worker_importer,Epetra.Insert)
         
+        #Compute the internal force
         compute_internal_force(my_force_x_worker, my_force_y_worker, my_x_worker, 
                 my_y_worker, my_disp_x_worker, my_disp_y_worker, my_families_local, 
                 my_ref_mag_state, my_weighted_volume, my_volumes, BULK_MODULUS, 
@@ -517,8 +518,6 @@ if __name__ == "__main__":
         my_disp_x += my_velocity_x*time_step + 0.5*my_accel_x*time_step*time_step
         my_disp_y += my_velocity_y*time_step + 0.5*my_accel_y*time_step*time_step
         
-
-
         #Compute stable time step
         #time_step = compute_stable_time_step(my_x, my_y, my_disp_x, my_disp_y, 
                 #my_families, my_ref_mag_state, my_weighted_volume, my_volumes, 
@@ -531,7 +530,7 @@ if __name__ == "__main__":
 
             #Compute the damage
             my_damage = 1.0 - ma.mean(my_influence_state,axis=1)
-
+            
             outfile.write_geometry_file_time_step(my_x, my_y)
             outfile.write_vector_variable_time_step('displacement', 
                                                    [my_disp_x,my_disp_y], time)
@@ -544,7 +543,7 @@ if __name__ == "__main__":
         if not VERBOSE and rank == 0:
             progress.update(iteration + 1)
 
-
+    #Finalize plotfiles
     outfile.finalize()
     #Wrap up the progress bar printing
     if not VERBOSE and rank == 0:
