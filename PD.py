@@ -171,7 +171,7 @@ def insert_crack(crack, tree, horizon, x_pos, y_pos, families):
     slope_denom = max_x - min_x
     j = np.complex(0,1)
     if -1e-10 < slope_denom < 1e-10:
-        #Crack line is vertical,discrete points along crack path
+        #Crack line is vertical, discrete points along crack path
         x_points = [min_x for _ in range(number_points_along_crack)]
         y_points = np.r_[min_y:max_y:number_points_along_crack*j]
     else:
@@ -191,8 +191,6 @@ def insert_crack(crack, tree, horizon, x_pos, y_pos, families):
     
     #The search above will produce duplicate neighbor nodes, make them into a
     #unique 1-dimensional list
-    #nodes_near_crack_flat = list(set([  elem for iterable in nodes_near_crack 
-            #for elem in iterable ]))
     nodes_near_crack_flat = np.array(np.unique(nodes_near_crack),dtype=np.int)
     
     #Remove the dummy entries
@@ -203,7 +201,8 @@ def insert_crack(crack, tree, horizon, x_pos, y_pos, families):
     #cross the crack path
     for node_index in nodes_near_crack_flat:
         #Loop over node family
-        for bond_index,end_point_index in enumerate(families[node_index] != -1):
+        node_family = families[node_index][families[node_index] != -1]
+        for bond_index,end_point_index in enumerate(node_family):
             #Define the bond line segment as the line between the node and its
             #endpoint.
             bond_line_seg = [ x_pos[node_index], y_pos[node_index], 
@@ -217,6 +216,7 @@ def insert_crack(crack, tree, horizon, x_pos, y_pos, families):
 
 
 def boundary_condition_set(vertices,nodes,unbalanced_map):
+    """Finds nodes enclosed by the polygon described with vertices"""
     
     #Create a polygon object with a list of vertices, vertices must be tuples
     polygon = path.Path(vertices,codes=None)
@@ -226,6 +226,10 @@ def boundary_condition_set(vertices,nodes,unbalanced_map):
     node_indices =  np.arange(unbalanced_map.NumMyElements(),dtype=np.int)
     #Returns local node indices that are inside the polygon
     return node_indices[bool_arr]
+
+def influence_function(ref_mag_state,horizon):
+    """Returns an influence state that has the form 1 - zeta/delta"""
+    return 1. - ref_mag_state/horizon
 
 #This line begins the main program.  This is not nescarry, but can be helpful
 #if we want to load this file as a module from another Python script
@@ -310,7 +314,7 @@ if __name__ == "__main__":
     #data.
     my_nodes = Epetra.MultiVector(unbalanced_map, 2)
     my_nodes[:] = nodes.T
-    #Create and populate an Epetra mulitvector to store the famlies data
+    #Create and populate an Epetra mulitvector to store the families data
     max_family_length = comm.MaxAll(max_family_length)
     my_families = Epetra.MultiVector(unbalanced_map, max_family_length)
     my_families[:] = families.T
@@ -396,7 +400,9 @@ if __name__ == "__main__":
             my_ref_pos_state_y * my_ref_pos_state_y) ** 0.5
 
     #Initialize influence state
-    my_influence_state = np.ones_like(my_families_local,dtype=np.double) 
+    my_influence_state = influence_function(my_ref_mag_state,HORIZON)
+    #for i in range(len(my_influence_state)):
+        #print my_influence_state[i]
 
     #Initialize the dummy volumes
     my_volumes = np.ones_like(my_x_worker,dtype=np.double) 
