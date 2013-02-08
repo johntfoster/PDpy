@@ -401,8 +401,7 @@ if __name__ == "__main__":
 
     #Initialize influence state
     my_influence_state = influence_function(my_ref_mag_state,HORIZON)
-    #for i in range(len(my_influence_state)):
-        #print my_influence_state[i]
+    my_ref_influence_state = my_influence_state.copy()
 
     #Initialize the dummy volumes
     my_volumes = np.ones_like(my_x_worker,dtype=np.double) 
@@ -471,7 +470,7 @@ if __name__ == "__main__":
     for iteration in range(MAX_ITER):
         
         #Set current time
-        time = iteration*time_step
+        time = iteration * time_step
 
         #Print an information line
         if VERBOSE and rank ==0:
@@ -479,12 +478,12 @@ if __name__ == "__main__":
                     str(time_step) + " , sim time = " + str(time))
 
         #Enforce boundary conditions
-        my_disp_x[[bc1_local_node_set]] = time*BC1_VALUE
+        my_disp_x[[bc1_local_node_set]] = time * BC1_VALUE
         my_disp_y[[bc1_local_node_set]]= 0.0
         my_velocity_x[[bc1_local_node_set]] = BC1_VALUE
         my_velocity_y[[bc1_local_node_set]] = 0.0
         #
-        my_disp_x[[bc2_local_node_set]] = time*BC2_VALUE
+        my_disp_x[[bc2_local_node_set]] = time * BC2_VALUE
         my_disp_y[[bc2_local_node_set]]= 0.0
         my_velocity_x[[bc2_local_node_set]] = BC2_VALUE
         my_velocity_y[[bc2_local_node_set]] = 0.0
@@ -497,8 +496,8 @@ if __name__ == "__main__":
         
         #Communicate the displacements (previous or boundary condition imposed)
         #to the worker vectors to be used at
-        my_disp_x_worker.Import(my_disp_x,worker_importer,Epetra.Insert)
-        my_disp_y_worker.Import(my_disp_y,worker_importer,Epetra.Insert)
+        my_disp_x_worker.Import(my_disp_x, worker_importer, Epetra.Insert)
+        my_disp_y_worker.Import(my_disp_y, worker_importer, Epetra.Insert)
         
         #Compute the internal force
         compute_internal_force(my_force_x_worker, my_force_y_worker, my_x_worker, 
@@ -507,22 +506,24 @@ if __name__ == "__main__":
                 my_influence_state, my_num_owned)
         
         #Communicate values from worker vectors (owned + ghosts) back to owned only
-        my_force_x.Export(my_force_x_worker,worker_exporter,Epetra.Add)
-        my_force_y.Export(my_force_y_worker,worker_exporter,Epetra.Add)
+        my_force_x.Export(my_force_x_worker, worker_exporter, Epetra.Add)
+        my_force_y.Export(my_force_y_worker, worker_exporter, Epetra.Add)
      
         #Compute the nodal acceleration
         my_accel_x_old = my_accel_x.copy()
         my_accel_y_old = my_accel_y.copy()
-        my_accel_x = my_force_x/my_volumes[:my_num_owned]/RHO
-        my_accel_y = my_force_y/my_volumes[:my_num_owned]/RHO
+        my_accel_x = my_force_x / my_volumes[:my_num_owned] / RHO
+        my_accel_y = my_force_y / my_volumes[:my_num_owned] / RHO
         
         #Compute the nodal velocity
-        my_velocity_x += 0.5*(my_accel_x_old + my_accel_x)*time_step
-        my_velocity_y += 0.5*(my_accel_y_old + my_accel_y)*time_step
+        my_velocity_x += 0.5 * (my_accel_x_old + my_accel_x) * time_step
+        my_velocity_y += 0.5 * (my_accel_y_old + my_accel_y) * time_step
         
         #Compute the new displacements
-        my_disp_x += my_velocity_x*time_step + 0.5*my_accel_x*time_step*time_step
-        my_disp_y += my_velocity_y*time_step + 0.5*my_accel_y*time_step*time_step
+        my_disp_x += my_velocity_x * time_step + (0.5 * my_accel_x * 
+                time_step * time_step)
+        my_disp_y += my_velocity_y * time_step + (0.5 * my_accel_y * 
+                time_step * time_step)
         
         #Compute stable time step
         #time_step = compute_stable_time_step(my_x, my_y, my_disp_x, my_disp_y, 
@@ -535,7 +536,8 @@ if __name__ == "__main__":
                 print "Writing plot file..."
 
             #Compute the damage
-            my_damage = 1.0 - ma.mean(my_influence_state,axis=1)
+            my_damage = 1.0 - ma.mean(my_influence_state / 
+                    my_ref_influence_state,axis=1)
             
             outfile.write_geometry_file_time_step(my_x, my_y)
             outfile.write_vector_variable_time_step('displacement', 
