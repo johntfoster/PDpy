@@ -32,13 +32,13 @@ def scalar_force_state_fun(exten_state, weighted_volume, bulk_modulus,
        bond based material."""
 
     #Return the force
-    return 9.0 * bulk_modulus * influence_state / weighted_volume * exten_state
+    return 9.0 * bulk_modulus * influence_state / weighted_volume[:,None] * exten_state
 
 
 # Internal force calculation
 def compute_internal_force(force_x, force_y, pos_x, pos_y, disp_x, disp_y, 
-        families, ref_mag_state, weighted_volume, volumes, bulk_modulus,
-        influence_state,num_owned):
+        families, ref_mag_state, volumes, bulk_modulus, influence_state,
+        num_owned):
     """ Computes the peridynamic internal force due to deformations."""
 
     #Compute the deformed positions of the nodes
@@ -63,7 +63,12 @@ def compute_internal_force(force_x, force_y, pos_x, pos_y, disp_x, disp_y,
     exten_state = def_mag_state - ref_mag_state
 
     #Apply a critical stretch damage model
+    ref_inf_state = influence_state.copy()
     influence_state[exten_state > 0.005] = 0.0
+    
+    #Compute weighted volume 
+    weighted_volume = (influence_state * ref_mag_state * 
+            ref_mag_state * my_volumes[[families]]).sum(axis=1)
 
     #Compute scalar force state
     scalar_force_state = scalar_force_state_fun(exten_state, weighted_volume,
@@ -345,9 +350,9 @@ if __name__ == "__main__":
     my_y = Epetra.Vector(balanced_map)
     my_families_balanced = Epetra.MultiVector(balanced_map, max_family_length)
     #Import the balanced node positions and family information
-    my_x.Import(my_nodes[0],importer,Epetra.Insert)
-    my_y.Import(my_nodes[1],importer,Epetra.Insert)
-    my_families_balanced.Import(my_families,importer,Epetra.Insert)
+    my_x.Import(my_nodes[0],importer, Epetra.Insert)
+    my_y.Import(my_nodes[1],importer, Epetra.Insert)
+    my_families_balanced.Import(my_families,importer, Epetra.Insert)
     #Convert to integer data type for indexing purposes later
     my_families = np.array(my_families_balanced.T, dtype=np.int32)
     #Create a flattened list of all family global indices (locally owned 
@@ -359,7 +364,7 @@ if __name__ == "__main__":
     my_num_owned = len(my_owned_ids)
     #The ghost indices required by the local processor is the relative complement 
     #of my_global_ids_required and my_owned_ids
-    my_ghost_ids = np.setdiff1d(my_global_ids_required,my_owned_ids)
+    my_ghost_ids = np.setdiff1d(my_global_ids_required, my_owned_ids)
     #And its length
     my_num_ghosts = len(my_ghost_ids)
     #Get total length of worker array, this is len(owned) + len(ghosts)
@@ -367,7 +372,7 @@ if __name__ == "__main__":
     length_of_global_worker_arr = comm.SumAll(len(my_owned_ids) 
             + len(my_ghost_ids))
     #Worker ids
-    my_worker_ids = np.concatenate((my_owned_ids,my_ghost_ids))
+    my_worker_ids = np.concatenate((my_owned_ids, my_ghost_ids))
     ##Create the map that will be used by worker vectors
     my_worker_map = Epetra.Map(length_of_global_worker_arr, 
             my_worker_ids, 0, comm)
@@ -386,7 +391,7 @@ if __name__ == "__main__":
         for i in my_families.flatten()])
     #Mask local family array
     my_families_local.shape = (len(my_families),-1)
-    my_families_local = ma.masked_equal(my_families_local,-1)
+    my_families_local = ma.masked_equal(my_families_local, -1)
     my_families_local.harden_mask()
 
     #Compute reference position state of all nodes
@@ -395,20 +400,18 @@ if __name__ == "__main__":
     my_ref_pos_state_y = ma.masked_array(my_y_worker[[my_families_local]] - 
             my_y_worker[:my_num_owned,None], mask=my_families_local.mask)
 
-    ###Compute reference magnitude state of all nodes
+    #Compute reference magnitude state of all nodes
     my_ref_mag_state = (my_ref_pos_state_x * my_ref_pos_state_x +
             my_ref_pos_state_y * my_ref_pos_state_y) ** 0.5
 
     #Initialize influence state
     my_influence_state = influence_function(my_ref_mag_state,HORIZON)
+    my_influence_state.harden_mask()
+    #Create a reference copy, used for normalizing damage to a reference state
     my_ref_influence_state = my_influence_state.copy()
 
     #Initialize the dummy volumes
     my_volumes = np.ones_like(my_x_worker,dtype=np.double) 
-
-    #Compute weighted volume 
-    my_weighted_volume = (my_influence_state * my_ref_mag_state * 
-            my_ref_mag_state * my_volumes[[my_families_local]])
 
     #Create distributed vectors (owned only)
     my_disp_x = Epetra.Vector(balanced_map)
@@ -422,7 +425,7 @@ if __name__ == "__main__":
     my_force_x_worker = Epetra.Vector(my_worker_map)
     my_force_y_worker = Epetra.Vector(my_worker_map)
 
-    #Temparary arrays
+    #Temporary arrays
     my_velocity_x = np.zeros_like(my_disp_x)
     my_velocity_y = np.zeros_like(my_disp_y)
     my_accel_x = np.zeros_like(my_disp_x)
@@ -435,7 +438,7 @@ if __name__ == "__main__":
     #Instantiate output file object
     outfile = Ensight('output', vector_variables, scalar_variables, comm, 
             viz_path=VIZ_PATH)
-    #Print the temporary outpu arrays
+    #Print the temporary output arrays
     if rank == 0: 
         print("Output variables requested:\n")
         for item in vector_variables:
@@ -444,7 +447,7 @@ if __name__ == "__main__":
             print("    " + item)
         print(" ")
 
-    #Find local nodes where boundary condtions should be applied
+    #Find local nodes where boundary conditions should be applied
     bc1_local_node_set = boundary_condition_set(BC1_POLYGON,zip(my_x.ravel(),my_y.ravel()),balanced_map)
     bc2_local_node_set = boundary_condition_set(BC2_POLYGON,zip(my_x.ravel(),my_y.ravel()),balanced_map)
 
@@ -500,9 +503,9 @@ if __name__ == "__main__":
         my_disp_y_worker.Import(my_disp_y, worker_importer, Epetra.Insert)
         
         #Compute the internal force
-        compute_internal_force(my_force_x_worker, my_force_y_worker, my_x_worker, 
-                my_y_worker, my_disp_x_worker, my_disp_y_worker, my_families_local, 
-                my_ref_mag_state, my_weighted_volume, my_volumes, BULK_MODULUS, 
+        compute_internal_force(my_force_x_worker, my_force_y_worker, 
+                my_x_worker, my_y_worker, my_disp_x_worker, my_disp_y_worker, 
+                my_families_local, my_ref_mag_state, my_volumes, BULK_MODULUS, 
                 my_influence_state, my_num_owned)
         
         #Communicate values from worker vectors (owned + ghosts) back to owned only
