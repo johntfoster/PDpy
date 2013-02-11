@@ -14,6 +14,7 @@ from progressbar import Percentage
 from progressbar import Bar
 from progressbar import RotatingMarker
 from ensight import Ensight
+import materials
 
 from PyTrilinos import Epetra
 from PyTrilinos import Teuchos
@@ -25,20 +26,10 @@ size = comm.NumProc()
 
 ### Peridynamic functions ###
 
-# Simple constitutive model
-def scalar_force_state_fun(exten_state, weighted_volume, bulk_modulus, 
-        influence_state):
-    """Computes the scalar force state.  This is the state-based version of a
-       bond based material."""
-
-    #Return the force
-    return 9.0 * bulk_modulus * influence_state / weighted_volume[:,None] * exten_state
-
-
 # Internal force calculation
 def compute_internal_force(force_x, force_y, pos_x, pos_y, disp_x, disp_y, 
-        families, ref_mag_state, volumes, bulk_modulus, influence_state,
-        num_owned):
+        families, ref_mag_state, volumes, youngs_modulus, poisson_ratio, 
+        influence_state, num_owned):
     """ Computes the peridynamic internal force due to deformations."""
 
     #Compute the deformed positions of the nodes
@@ -63,25 +54,27 @@ def compute_internal_force(force_x, force_y, pos_x, pos_y, disp_x, disp_y,
     exten_state = def_mag_state - ref_mag_state
 
     #Apply a critical stretch damage model
-    ref_inf_state = influence_state.copy()
     influence_state[exten_state > 0.005] = 0.0
     
-    #Compute weighted volume 
-    weighted_volume = (influence_state * ref_mag_state * 
-            ref_mag_state * my_volumes[[families]]).sum(axis=1)
+    #Compute dilatation
+    dilatation = (3.0 * weighted_volume[:,None] * influence_state * 
+            ref_mag_state * exten_state * volumes[families]).sum(axis=1)
 
     #Compute scalar force state
-    scalar_force_state = scalar_force_state_fun(exten_state, weighted_volume,
-            bulk_modulus, influence_state) 
-   
+    #scalar_force_state = materials.elastic_material(youngs_modulus, 
+            #poisson_ratio, dilatation, exten_state, ref_mag_state, 
+            #weighted_volume, influence_state)   
+    scalar_force_state = materials.bond_based_elastic_material(exten_state, 
+            weighted_volume, youngs_modulus, poisson_ratio, influence_state)
+
     #Compute the force state
     force_state_x = scalar_force_state * def_unit_state_x
     force_state_y = scalar_force_state * def_unit_state_y
 
     #Integrate nodal forces 
     #Sum the force contribution from j nodes to i node
-    force_x[:num_owned] += np.sum(force_state_x * volumes[families],axis=1)
-    force_y[:num_owned] += np.sum(force_state_y * volumes[families],axis=1)
+    force_x[:num_owned] += (force_state_x * volumes[families]).sum(axis=1)
+    force_y[:num_owned] += (force_state_y * volumes[families]).sum(axis=1)
 
     #Subtract the force contribution from i nodes from j, the bincount()
     #operation is a trick to keep it fast in Numpy.  See:
@@ -248,7 +241,8 @@ if __name__ == "__main__":
     HORIZON = 3.015
     TIME_STEP = 1.e-5
     #TIME_STEP = None
-    BULK_MODULUS = 70.e9
+    YOUNGS_MODULUS = 200.0e9
+    POISSON_RATIO = 0.29
     RHO = 7800
     SAFTEY_FACTOR = 0.5
     MAX_ITER = 4000
@@ -412,6 +406,10 @@ if __name__ == "__main__":
 
     #Initialize the dummy volumes
     my_volumes = np.ones_like(my_x_worker,dtype=np.double) 
+    
+    #Compute weighted volume 
+    weighted_volume = (my_influence_state * my_ref_mag_state * 
+            my_ref_mag_state * my_volumes[my_families_local]).sum(axis=1)
 
     #Create distributed vectors (owned only)
     my_disp_x = Epetra.Vector(balanced_map)
@@ -454,7 +452,7 @@ if __name__ == "__main__":
     #Calculate a stable time step or use the user defined
     if TIME_STEP == None:
         time_step = SAFTEY_FACTOR*compute_stable_time_step(my_families, 
-                my_ref_mag_state, my_volumes, my_num_owned, BULK_MODULUS,
+                my_ref_mag_state, my_volumes, my_num_owned, YOUNGS_MODULUS,
                 RHO, HORIZON)
     else:
         time_step = TIME_STEP
@@ -505,8 +503,8 @@ if __name__ == "__main__":
         #Compute the internal force
         compute_internal_force(my_force_x_worker, my_force_y_worker, 
                 my_x_worker, my_y_worker, my_disp_x_worker, my_disp_y_worker, 
-                my_families_local, my_ref_mag_state, my_volumes, BULK_MODULUS, 
-                my_influence_state, my_num_owned)
+                my_families_local, my_ref_mag_state, my_volumes, YOUNGS_MODULUS, 
+                POISSON_RATIO, my_influence_state, my_num_owned)
         
         #Communicate values from worker vectors (owned + ghosts) back to owned only
         my_force_x.Export(my_force_x_worker, worker_exporter, Epetra.Add)
