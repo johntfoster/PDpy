@@ -237,7 +237,7 @@ if __name__ == "__main__":
     ### Main Program ####
     #####################
     #INPUTS
-    GRIDSIZE = 100
+    GRIDSIZE = 400
     HORIZON = 3.015
     TIME_STEP = 1.e-5
     #TIME_STEP = None
