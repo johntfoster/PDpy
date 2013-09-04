@@ -1,4 +1,4 @@
-PD.py peridynamics example code
+_PD.py_ peridynamics example code
 ===============================
 
 _PD.Py_ is a 2D explicit-time integration code that serves as an example code
@@ -14,10 +14,7 @@ git clone
 [PyTrilinos](http://trilinos.sandia.gov/packages/pytrilinos/)
 
 #### Python packages available via `pip` ####
-NumPy
-SciPy
-matplotlib
-progressbar
+NumPy, SciPy, matplotlib, progressbar, mpi4py (required by PyTrilinos)
 
 These can be installed with the `requirements.txt` file
 
