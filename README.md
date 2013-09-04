@@ -2,12 +2,13 @@ _PD.py_ peridynamics example code
 ===============================
 
 _PD.Py_ is a 2D explicit-time integration code that serves as an example code
-of how one might write a peridynamics code in parallel with PyTrilinos.
+of how one might write a peridynamics code in parallel with PyTrilinos. The
+code is heavily commented to provide as much insight as possible.
 
 To clone the repo:
 
 ````
-git clone 
+git clone https://github.com:johntfoster/PDpy.git
 ````
 
 ### External dependencies ###
