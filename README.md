@@ -13,7 +13,7 @@ git clone
 ### External dependencies ###
 [PyTrilinos](http://trilinos.sandia.gov/packages/pytrilinos/)
 
-## Python packages available via `pip` ##
+#### Python packages available via `pip` ####
 NumPy
 SciPy
 matplotlib
