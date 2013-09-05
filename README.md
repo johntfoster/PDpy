@@ -8,7 +8,7 @@ code is heavily commented to provide as much insight as possible.
 To clone the repo:
 
 ````
-git clone https://github.com:johntfoster/PDpy.git
+git clone https://github.com/johntfoster/PDpy.git
 ````
 
 ### External dependencies ###
