@@ -513,8 +513,8 @@ if __name__ == "__main__":
         #Compute the nodal acceleration
         my_accel_x_old = my_accel_x.copy()
         my_accel_y_old = my_accel_y.copy()
-        my_accel_x = my_force_x / my_volumes[:my_num_owned] / RHO
-        my_accel_y = my_force_y / my_volumes[:my_num_owned] / RHO
+        my_accel_x = my_force_x  / RHO
+        my_accel_y = my_force_y  / RHO
         
         #Compute the nodal velocity
         my_velocity_x += 0.5 * (my_accel_x_old + my_accel_x) * time_step
